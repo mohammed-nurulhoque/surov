@@ -1,3 +1,4 @@
+`include "defs.sv"
 module Fetch(
 	input logic   clk,
 	input logic   rst,
