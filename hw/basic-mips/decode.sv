@@ -21,6 +21,7 @@ module decode(
 				OP_STORE: begin
 					store_val	<= r2_val;
 					alu_2 		<= 0; // FIXME
+				end
 			endcase
 		end
 endmodule
