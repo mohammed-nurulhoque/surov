@@ -4,19 +4,19 @@ typedef bit[11:0] i_imm;
 typedef bit[11:0] s_imm;
 typedef bit[19:0] u_imm;
 
-typedef enum { ALU_NOP, ALU_ADD, ALU_SUB, ALU_AND, ALU_OR, ALU_XOR,
-               ALU_SLL, ALU_SRL, ALU_SRA, ALU_SLT, ALU_SLTU } ALU_f;
+typedef enum bit[4:0] { ALU_NOP, ALU_ADD, ALU_SUB, ALU_AND, ALU_OR, ALU_XOR,
+                        ALU_SLL, ALU_SRL, ALU_SRA, ALU_SLT, ALU_SLTU } ALU_f;
 
-typedef enum bit[4:0] {
-    OP_LOAD     = 5'b00_000,
-    OP_STORE    = 5'b01_000,
-    OP_BRANCH   = 5'b11_000,
-    OP_JAL      = 5'b11_011,
-    OP_JALR     = 5'b11_001,
-    OP_OP       = 5'b01_100,
-    OP_IMM      = 5'b00_100,
-    OP_AUIPC    = 5'b00_101,
-    OP_LUI      = 5'b01_101
+typedef enum bit[6:0] {
+    OP_LOAD     = 7'b00_000_11,
+    OP_STORE    = 7'b01_000_11,
+    OP_BRANCH   = 7'b11_000_11,
+    OP_JAL      = 7'b11_011_11,
+    OP_JALR     = 7'b11_001_11,
+    OP_OP       = 7'b01_100_11,
+    OP_IMM      = 7'b00_100_11,
+    OP_AUIPC    = 7'b00_101_11,
+    OP_LUI      = 7'b01_101_11
 } opcode_t;
 
 typedef enum bit[2:0] {
@@ -39,6 +39,13 @@ typedef enum bit[2:0] {
     BR_GEU = 3'b111
  } branch_t;
 
+typedef enum bit[2:0] {
+    MEM_B = 3'b000,
+    MEM_H = 3'b001,
+    MEM_W = 3'b010,
+    MEM_BU = 3'b100,
+    MEM_HU = 3'b101
+} mem_addr_t;
 
 function regnum_t ext_rd (input word_t inst);
     return inst[11:7];
@@ -57,7 +64,7 @@ function logic[2:0] ext_f3 (input word_t inst);
 endfunction
 
 function opcode_t ext_opcode (input word_t inst);
-    return opcode_t'(inst[6:2]);
+    return opcode_t'(inst[6:0]);
 endfunction
 
 function word_t ext_i_imm (input word_t inst);
