@@ -48,13 +48,14 @@ class Memory {
     void dump() {
         puts("Memory dump");
         for (int i=0; i<size; i++) {
+            if (i%8==0) putc('\n', stdout);
             printf(" %02x:", mem[i]);
             if (isgraph(mem[i]))
                 putc(mem[i], stdout);
             else
                 putc('.', stdout);
-            if (i%8==0) putc('\n', stdout);
         }
+        putc('\n', stdout);
     }
 
     int load(unsigned addr, mem_addr_t addr_type, unsigned &output) {
@@ -63,9 +64,9 @@ class Memory {
             return 1;
         word_bytes out;
         for (unsigned i = 0; i < addr_size; i++) {
-            out.bytes[i] = mem[i];
+            out.bytes[i] = mem[addr+i];
         }
-        printf("load %d@%d = %d\n", addr_size, addr, out.word);
+        printf("load %d@%d = %d/%c\n", addr_size, addr, out.word, (char)out.word);
         output = out.word;
         return 0;
     }
@@ -77,7 +78,7 @@ class Memory {
             return 1;
         word_bytes val_bytes { .word = val };
         for (unsigned i = 0; i < (1 << addr_type); i++) {
-            mem[i] = val_bytes.bytes[i];
+            mem[addr+i] = val_bytes.bytes[i];
         }
         return 0;
     }
@@ -87,12 +88,10 @@ class Memory {
 int main(int argc, char *argv[]) {
     Vsingle_cycle dut;
     Memory dmem(32);
-    unsigned regfile[32];
-    regfile[0] = 0;
 
     Verilated::traceEverOn(true);
     VerilatedVcdC *m_trace = new VerilatedVcdC;
-    dut.trace(m_trace, 5);
+    dut.trace(m_trace, 2);
     m_trace->open("waveform.vcd");
 
     unsigned char __attribute__((aligned(4))) test[] = {
@@ -125,21 +124,13 @@ int main(int argc, char *argv[]) {
         printf("pc:%08x, inst:%08x\n", dut.pc, dut.inst);
         if (dut.pc == sizeof(test)) break;
         dut.eval();
-        dut.rs1val = regfile[dut.rs1];
-        dut.rs2val = regfile[dut.rs2];
-        dut.eval();
-        if (dut.dmem_rd && dmem.load(dut.dmem_addr, (mem_addr_t)dut.dmem_size, dut.dmem_data)) {
+        if (dut.dmem_rd && dmem.load(dut.dmem_addr, (mem_addr_t)dut.dmem_size, dut.dmem_data_in)) {
                 m_trace->close();
                 assert(false);
         }
-        printf("dmem data: %x\n", dut.dmem_data);
         dut.eval();
-        dut.dmem_in_enable = dut.dmem_rd;
-        printf("dmem data: %x\n", dut.dmem_data);
         m_trace->dump(i*2);
-        if (dut.wr_reg && dut.rd != 0)
-            regfile[dut.rd] = dut.rdval;
-        if (dut.dmem_wr && dmem.store(dut.dmem_addr, dut.dmem_data, (mem_addr_t)dut.dmem_size)) {
+        if (dut.dmem_wr && dmem.store(dut.dmem_addr, dut.dmem_data_out, (mem_addr_t)dut.dmem_size)) {
                 m_trace->close();
                 assert(false);
         }
@@ -152,5 +143,6 @@ int main(int argc, char *argv[]) {
 
     m_trace->close();
     printf("SUCCESS\n");
+    dmem.dump();
     exit(EXIT_SUCCESS);
 }
