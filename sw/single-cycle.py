@@ -1,6 +1,8 @@
+import sys
 from enum import Enum
 from typing import Dict
 from ctypes import c_int32, c_uint32, c_int8, c_int16
+from pyriscv_disas import Inst, rv_disas
 
 '''
 Invariants:
@@ -223,6 +225,11 @@ if __name__ == "__main__":
     .L1:
         ebreak 
     '''
+    with open(sys.argv[1], mode='rb') as f:
+        bytes = f.read()
+    i = 0
+    while i < len(bytes):
+
     cpu.imem.arr = [
         Instr('bge', rs1='x0', rs2='a0', imm=24),
         Instr('addi', 'a5', 'x0', imm=0),
