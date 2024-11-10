@@ -37,6 +37,7 @@ void print_help(char *bin, int ecode) {
 
 class Memory {
     std::vector<char> mem;
+    size_t start;
 
     union word_bytes {
         unsigned word;
@@ -44,8 +45,8 @@ class Memory {
     };
 
     public:
-    Memory(unsigned size)
-        : mem(size, 0) {}
+    Memory(unsigned size, size_t start=0)
+        : mem(size, 0), start(start) {}
 
     void flash(unsigned char *data, size_t len) {
         mem.resize(len);
@@ -75,11 +76,11 @@ class Memory {
     int load(unsigned addr, mem_addr_t addr_type, unsigned &output) {
         unsigned addr_size = 1 << (addr_type & 0b11);
         fprintf(stderr, "load %d@%x = ", addr_size, addr);
-        if (addr + addr_size > mem.size())
+        if (addr + addr_size > start + mem.size())
             return 1;
         word_bytes out {};
         for (unsigned i = 0; i < addr_size; i++) {
-            out.bytes[i] = mem[addr+i];
+            out.bytes[i] = mem[addr-start+i];
         }
         switch (addr_type) {
         case MEM_B:
@@ -97,11 +98,11 @@ class Memory {
     unsigned store(unsigned addr, unsigned val, mem_addr_t addr_type) {
         unsigned addr_size = 1 << (addr_type & 0b11);
         fprintf(stderr, "store %d@%x = %x\n", addr_size, addr, val);
-        if (addr + addr_size > mem.size())
+        if (addr + addr_size > start + mem.size())
             return 1;
         word_bytes val_bytes { .word = val };
         for (unsigned i = 0; i < (1 << addr_type); i++) {
-            mem[addr+i] = val_bytes.bytes[i];
+            mem[addr-start+i] = val_bytes.bytes[i];
         }
         return 0;
     }
@@ -109,10 +110,18 @@ class Memory {
 
 
 int main(int argc, char *argv[]) {
-    if (argc != 2)
+    if (argc < 2)
         assert("expert 1 argument" && false);
     Vcore dut;
-    Memory dmem(50);
+    size_t mem_start = 0;
+    if (argc >= 3) {
+        assert(sscanf(argv[2], "0x%lx", &mem_start) == 1);
+    }
+    size_t start_addr = mem_start;
+    if (argc >= 4) {
+	    assert(sscanf(argv[3], "0x%lx", &start_addr) == 1);
+    }
+    Memory dmem(4, mem_start);
     int sim_time = 0;
     int instr_count = 0;
 
@@ -121,12 +130,13 @@ int main(int argc, char *argv[]) {
     dut.trace(m_trace, 2);
     m_trace->open("waveform.vcd");
 
-    dmem.flash(argv[1], 0x800);
+    dmem.flash(argv[1], 0x2004);
 
-	uint32_t regfile[RF_SIZE];
+    uint32_t regfile[RF_SIZE] = {};
 
     m_trace->dump(sim_time++);
     dut.rst = 1;
+    dut.memread_data = start_addr;
     dut.clk = 0;
     dut.eval();
     m_trace->dump(sim_time++);
@@ -147,12 +157,12 @@ int main(int argc, char *argv[]) {
         }
         // store
         if (dut.mem_wren) {
-            if (dut.mem_addr >= 0x8000000) {
+            if (dut.mem_addr == 0x8000000) {
                 if (dut.mem_size == MEM_B) {
                     putc(dut.memwrite_data, stdout);
                     fprintf(stderr, "wrote byte %c\n", (char)dut.memwrite_data);
                 } else if (dut.mem_size == MEM_W & dut.memwrite_data == 0xffffffff) {
-                    fprintf(stderr, "Finished Simulation\n");
+                    fprintf(stderr, "Finished Simulation, gp: %d\n", regfile[3]);
                     break;
                 }
             }

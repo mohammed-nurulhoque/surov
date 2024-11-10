@@ -19,7 +19,7 @@ module adder #(parameter int WIDTH = 12)
             adder_b = {(WIDTH+1)'(b_tmp), is_sub}; // cin
         end else begin
             adder_a = {1'b0, src_a, 1'b1};
-            adder_b = {1'b0, b_tmp, is_sub}; // cin
+            adder_b = {1'b1, b_tmp, is_sub}; // cin
         end
     end
     wire logic[WIDTH+1:0] adder_out = adder_a + adder_b;
@@ -29,8 +29,8 @@ module adder #(parameter int WIDTH = 12)
         unique case (adderOp_t'(op))
             ADDER_EQ: out = {31'b0, (adder_out[WIDTH:1] == 0)};
             ADDER_NE: out = {31'b0, (adder_out[WIDTH:1] != 0)};
-            ADDER_LT, ADDER_LTU: out = {31'b0, adder_out[WIDTH]};
-            ADDER_GE, ADDER_GEU: out = {31'b0, ~(adder_out[WIDTH])};
+            ADDER_LT, ADDER_LTU: out = {31'b0, adder_out[WIDTH+1]};
+            ADDER_GE, ADDER_GEU: out = {31'b0, ~(adder_out[WIDTH+1])};
             ADDER_ADD : out = adder_out[WIDTH:1];
             ADDER_SUB : out = adder_out[WIDTH:1];
             default : out = 'X;

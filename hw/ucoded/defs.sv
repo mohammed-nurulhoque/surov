@@ -21,7 +21,8 @@ typedef enum bit[6:0] {
     OP_IMM      = 7'b00_100_11,
     OP_AUIPC    = 7'b00_101_11,
     OP_LUI      = 7'b01_101_11,
-    OP_EBREAK   = 7'b11_100_11
+    OP_FENCE	= 7'b00_011_11,
+    OP_ECALLBR  = 7'b11_100_11
 } opcode_t;
 
 typedef enum bit[2:0] {
@@ -56,7 +57,7 @@ typedef enum bit[2:0] {
     ADDER_GEU = 3'b111
 } adderOp_t;
 
-`define PC_INIT 0
+`define PC_INIT 32'h80000000
 `define CYCLE_INIT EX
 `define INST_INIT 32'h00_00_00_07
 

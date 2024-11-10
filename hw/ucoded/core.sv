@@ -1,6 +1,6 @@
 function logic has_d2 (input word_t inst);
     unique case (opcode_t'(ext_opcode(inst)))
-        OP_IMM, OP_LUI, OP_AUIPC, OP_JAL: has_d2 = 0;
+        OP_IMM, OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE: has_d2 = 0;
         default: has_d2 = 1;
     endcase
 endfunction
@@ -8,7 +8,7 @@ endfunction
 function logic d_read_rs (cycle_t cycle, input opcode_t op);
     if (cycle == D1) begin
         unique case (op)
-            OP_LUI, OP_AUIPC, OP_JAL: d_read_rs = 0;
+            OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE: d_read_rs = 0;
             default: d_read_rs = 1;
         endcase
     end else begin
@@ -78,7 +78,7 @@ module core
     always_ff @(posedge clk) begin
         // reset
         if (rst) begin
-            pc_next  <= `PC_INIT;
+            pc_next  <= memread_data;
             cycle    <= `CYCLE_INIT;
             inst     <= `INST_INIT;
             is_load  <= 0;
@@ -89,7 +89,7 @@ module core
                 pc_next <= adder_out; // garbage for jalr
                 is_load <= opcode == OP_LOAD;
                 is_store <= opcode == OP_STORE;
-                if (opcode == OP_EBREAK)
+                if ((opcode == OP_ECALLBR))
                     cycle <= D1;
             end
             D2: begin
@@ -202,7 +202,7 @@ module core
 
     wire sig_sr = opFunc_t'(ext_f3(inst)) == FUNC_SR;
     wire sig_sa = ext_arith_bit(inst);
-    wire[WSHAM-1:0] sham = (opcode == OP_OP)? rs2 : ext_i_imm(inst);
+    wire[WSHAM-1:0] sham = {((opcode == OP_OP)? rs2 : ext_i_imm(inst))}[4:0];
     word_t shifter_out;
     shifter #(.WIDTH(WDATA)) sh(rs1, sham, sig_sr, sig_sa, shifter_out);
 
@@ -267,7 +267,7 @@ module core
             mem_addr = saved_addr;
             mem_size = saved_mem_size;
         end 
-        if (cycle == D1 && opcode == OP_EBREAK) begin
+        if (cycle == D1 && opcode == OP_ECALLBR) begin
             mem_wren = 1;
             mem_addr = 32'h8000000;
             mem_size = MEM_W;
