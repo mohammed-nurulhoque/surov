@@ -101,6 +101,6 @@ function word_t ext_u_imm (input word_t inst);
 endfunction
 
 function word_t ext_j_imm (input word_t inst);
-    return { inst[31], inst[30:20], inst[19:12], 12'h000 };
+    return { {12{inst[31]}}, inst[19:12], inst[20], inst[30:21], 1'b0 };
 endfunction
 

@@ -1,3 +1,7 @@
+#include <filesystem>
+#include <fstream>
+#include <vector>
+
 #include <cstdlib>
 #include <cctype>
 
@@ -17,14 +21,22 @@ enum mem_addr_t {
 
 static const int RF_SIZE = 32;
 
+static const char *regname[] = {
+    "zero", "ra", "sp", "gp",
+    "tp", "t0", "t1", "t2",
+    "s0", "s1",
+    "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", 
+    "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", 
+    "t3", "t4", "t5", "t6" 
+};
+
 void print_help(char *bin, int ecode) {
     printf("Usage %s [-i test-iters] [-h]\n", bin);
     exit(ecode);
 }
 
 class Memory {
-    unsigned char *mem;
-    unsigned size;
+    std::vector<char> mem;
 
     union word_bytes {
         unsigned word;
@@ -33,34 +45,37 @@ class Memory {
 
     public:
     Memory(unsigned size)
-        : size(size)
-    {
-        mem = new unsigned char[size];
-        for (int i=0; i<size; i++)
-            mem[i] = 0;
-    }
+        : mem(size, 0) {}
 
     void flash(unsigned char *data, size_t len) {
-        memcpy(mem, data, len);
+        mem.resize(len);
+        memcpy(&mem[0], data, len);
+    }
+
+    void flash(char *filename, size_t minsize=0) {
+        size_t fsize = std::filesystem::file_size(filename);
+        mem.resize(std::max(fsize+4, minsize)); // hack because last instruction might fetch next
+        std::ifstream f(filename, std::ios::binary);
+        f.read(&mem[0], fsize);
     }
 
     void dump() {
-        puts("Memory dump");
-        for (int i=0; i<size; i++) {
-            if (i%8==0) putc('\n', stdout);
-            printf(" %02x:", mem[i]);
+        fputs("Memory dump", stderr);
+        for (int i=0; i<mem.size(); i++) {
+            if (i%8==0) putc('\n', stderr);
+            fprintf(stderr, " %02x:", mem[i]);
             if (isgraph(mem[i]))
-                putc(mem[i], stdout);
+                putc(mem[i], stderr);
             else
-                putc('.', stdout);
+                putc('.', stderr);
         }
-        putc('\n', stdout);
+        putc('\n', stderr);
     }
 
     int load(unsigned addr, mem_addr_t addr_type, unsigned &output) {
         unsigned addr_size = 1 << (addr_type & 0b11);
-        printf("load %d@%d = ", addr_size, addr);
-        if (addr + addr_size > size)
+        fprintf(stderr, "load %d@%x = ", addr_size, addr);
+        if (addr + addr_size > mem.size())
             return 1;
         word_bytes out {};
         for (unsigned i = 0; i < addr_size; i++) {
@@ -74,15 +89,15 @@ class Memory {
             out.word = (int32_t)(int16_t)out.word;
             break;
         }
-        printf("%x/%c\n", out.word, (char)out.word);
+        fprintf(stderr, "%x/%c\n", out.word, (char)out.word);
         output = out.word;
         return 0;
     }
 
     unsigned store(unsigned addr, unsigned val, mem_addr_t addr_type) {
         unsigned addr_size = 1 << (addr_type & 0b11);
-        printf("store %d@%d = %x\n", addr_size, addr, val);
-        if (addr + addr_size > size)
+        fprintf(stderr, "store %d@%x = %x\n", addr_size, addr, val);
+        if (addr + addr_size > mem.size())
             return 1;
         word_bytes val_bytes { .word = val };
         for (unsigned i = 0; i < (1 << addr_type); i++) {
@@ -94,29 +109,19 @@ class Memory {
 
 
 int main(int argc, char *argv[]) {
+    if (argc != 2)
+        assert("expert 1 argument" && false);
     Vcore dut;
     Memory dmem(50);
     int sim_time = 0;
+    int instr_count = 0;
 
     Verilated::traceEverOn(true);
     VerilatedVcdC *m_trace = new VerilatedVcdC;
     dut.trace(m_trace, 2);
     m_trace->open("waveform.vcd");
 
-    unsigned char __attribute__((aligned(4))) test[] = {
-    /* 0:*/ 0x03, 0x45, 0x40, 0x02,  // lbu a0, 0x24(zero)
-    /* 4:*/ 0x63, 0x00, 0xc5, 0x01,  // beqz    a0, 0x4 <foo+0x4>
-    /* 8:*/ 0x93, 0x05, 0x50, 0x02,  // li  a1, 0x25
-    /* c:*/ 0x37, 0x06, 0x00, 0x08,  // lui a2, 0x8000
-    /*10:*/ 0x23, 0x00, 0xa6, 0x00,  // sb  a0, 0x0(a2)
-    /*14:*/ 0x03, 0xc5, 0x05, 0x00,  // lbu a0, 0x0(a1)
-    /*18:*/ 0x93, 0x85, 0x15, 0x00,  // addi    a1, a1, 0x1
-    /*1c:*/ 0xe3, 0x1a, 0x05, 0xfe,  // bnez    a0, 0x1c <.LBB0_2+0xc>
-    /*20:*/ 0x73, 0x00, 0x10, 0x00,  // ebreak 
-    	'H', 'e', 'l', 'l', 'o', ' ', 'W', 'o', 'r', 'l', 'd', '!', 0
-    };
-
-    dmem.flash(test, sizeof(test));
+    dmem.flash(argv[1], 0x800);
 
 	uint32_t regfile[RF_SIZE];
 
@@ -133,18 +138,21 @@ int main(int argc, char *argv[]) {
     for (int i=0;; i++) {
         dut.clk = 0;
         dut.eval();
+        if (dut.cycle == 0)
+            instr_count++;
         // load
-        if (!dut.mem_wren && dmem.load(dut.mem_addr, (mem_addr_t)dut.mem_size, dut.memread_data)) {
+        if (dut.mem_read && dmem.load(dut.mem_addr, (mem_addr_t)dut.mem_size, dut.memread_data)) {
                 m_trace->close();
                 assert("load error" && false);
         }
         // store
         if (dut.mem_wren) {
             if (dut.mem_addr >= 0x8000000) {
-                if (dut.mem_size == MEM_B)
-                    printf("Output Char: %c\n", dut.memwrite_data);
-                if (dut.mem_size == MEM_W & dut.memwrite_data == 0xffffffff) {
-                    printf("Finished Simulation\n");
+                if (dut.mem_size == MEM_B) {
+                    putc(dut.memwrite_data, stdout);
+                    fprintf(stderr, "wrote byte %c\n", (char)dut.memwrite_data);
+                } else if (dut.mem_size == MEM_W & dut.memwrite_data == 0xffffffff) {
+                    fprintf(stderr, "Finished Simulation\n");
                     break;
                 }
             }
@@ -154,13 +162,16 @@ int main(int argc, char *argv[]) {
             }
         }
         // RF read
-        if (dut.regnum < RF_SIZE) {
-            dut.rfread_data = dut.regnum ? regfile[dut.regnum] : 0;
+        if (dut.rf_read) {
+            assert(dut.regnum < RF_SIZE && "invalid regnum");
+            dut.rfread_data = regfile[dut.regnum];
+            fprintf(stderr, "read %s = %x\n", regname[dut.regnum], regfile[dut.regnum]);
         }
         dut.eval();
         m_trace->dump(sim_time++);
         // RF write
         if (dut.rf_wren && dut.regnum) {
+            fprintf(stderr, "write %s = %x\n", regname[dut.regnum], dut.rfwrite_data);
             regfile[dut.regnum] = dut.rfwrite_data;
         }
 
@@ -174,7 +185,7 @@ int main(int argc, char *argv[]) {
 
 
     m_trace->close();
-    printf("SUCCESS\n");
-    dmem.dump();
+    fprintf(stderr, "SUCCESS. Completed %d instructions, %d cycles\n", instr_count, sim_time/3-1);
+    // dmem.dump();
     exit(EXIT_SUCCESS);
 }

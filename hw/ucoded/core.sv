@@ -5,6 +5,32 @@ function logic has_d2 (input word_t inst);
     endcase
 endfunction
 
+function logic d_read_rs (cycle_t cycle, input opcode_t op);
+    if (cycle == D1) begin
+        unique case (op)
+            OP_LUI, OP_AUIPC, OP_JAL: d_read_rs = 0;
+            default: d_read_rs = 1;
+        endcase
+    end else begin
+        unique case (op)
+            OP_OP, OP_STORE, OP_BRANCH: d_read_rs = 1;
+            default: d_read_rs = 0;
+        endcase
+    end
+endfunction
+
+function logic is_read_mem (cycle_t cycle,
+                            logic is_load,
+                            logic is_store,
+                            opcode_t op);
+    unique case (cycle)
+        D1: is_read_mem = 0;
+        D2: is_read_mem = is_load | is_store;
+        EX: is_read_mem = !(is_store | (!is_load & op==OP_BRANCH));
+        BR: is_read_mem = 1;
+    endcase
+endfunction
+
 module core
 #(
     parameter int NUMREGS=32,
@@ -16,11 +42,15 @@ module core
     input logic clk,
     input logic rst,
 
+    output cycle_t cycle,
+
+    output logic rf_read,
     output logic rf_wren,
     output logic[WRFI-1:0]  regnum,
     input  logic[WDATA-1:0] rfread_data,
     output logic[WDATA-1:0] rfwrite_data,
 
+    output logic mem_read,
     output logic mem_wren,
     output logic[WPTR-1:0]  mem_addr,
     output mem_addr_t mem_size,
@@ -29,7 +59,6 @@ module core
 );
     logic[WPTR-1:0] pc;
     logic[WPTR-1:0] pc_next;
-    cycle_t cycle;
     word_t inst;
     word_t rs1;
     word_t rs2;
@@ -109,7 +138,8 @@ module core
             unique case (opcode)
                 OP_OP, OP_IMM: begin
                     unique case (ext_f3(inst))
-                        FUNC_ADDSUB: adder_op = ext_arith_bit(inst)? ADDER_SUB: ADDER_ADD;
+                        FUNC_ADDSUB: adder_op = 
+                            (opcode == OP_OP & ext_arith_bit(inst))? ADDER_SUB: ADDER_ADD;
                         FUNC_SLT:    adder_op = ADDER_LT;
                         FUNC_SLTU:   adder_op = ADDER_LTU;
                     endcase
@@ -174,7 +204,7 @@ module core
     wire sig_sa = ext_arith_bit(inst);
     wire[WSHAM-1:0] sham = (opcode == OP_OP)? rs2 : ext_i_imm(inst);
     word_t shifter_out;
-    shifter #(.WIDTH(WDATA), .SBITS($clog2(WDATA)), .BIAS(0)) sh(rs1, sham, sig_sr, sig_sa, shifter_out);
+    shifter #(.WIDTH(WDATA)) sh(rs1, sham, sig_sr, sig_sa, shifter_out);
 
     word_t alu_out;
     always_comb begin
@@ -195,9 +225,11 @@ module core
     always_comb begin
         regnum = 'X;
         rfwrite_data = 'X;
+        rf_read = 0;
         unique case (cycle)
             D1, D2: begin
                 rf_wren = 0;
+                rf_read = d_read_rs(cycle, opcode);
                 regnum = (cycle == D1)? ext_rs1(inst) : ext_rs2(inst); // junk for jalr
             end
             EX: begin
@@ -227,6 +259,7 @@ module core
     always_comb begin
         memwrite_data = rs2;
         mem_addr = pc_next;
+        mem_read = is_read_mem(cycle, is_load, is_store, opcode);
         mem_wren = 0;
         mem_size = MEM_W;
         if (cycle == EX & is_loadstore) begin

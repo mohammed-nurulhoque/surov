@@ -10,7 +10,7 @@ module adder #(parameter int WIDTH = 12)
     wire is_sub = op != ADDER_ADD;
     wire is_signed_sub = (op == ADDER_LT | op == ADDER_GE);
 
-    logic[WIDTH:0] adder_a, adder_b;
+    logic[WIDTH+1:0] adder_a, adder_b;
     wire signed[WIDTH-1:0] b_tmp = is_sub ? ~src_b : src_b;
 
     always_comb begin
@@ -27,10 +27,10 @@ module adder #(parameter int WIDTH = 12)
 
 	always_comb begin
         unique case (adderOp_t'(op))
-            ADDER_EQ: out = (adder_out[WIDTH:1] == 0);
-            ADDER_NE: out = (adder_out[WIDTH:1] != 0);
-            ADDER_LT, ADDER_LTU: out = adder_out[WIDTH];
-            ADDER_GE, ADDER_GEU: out = ~(adder_out[WIDTH]);
+            ADDER_EQ: out = {31'b0, (adder_out[WIDTH:1] == 0)};
+            ADDER_NE: out = {31'b0, (adder_out[WIDTH:1] != 0)};
+            ADDER_LT, ADDER_LTU: out = {31'b0, adder_out[WIDTH]};
+            ADDER_GE, ADDER_GEU: out = {31'b0, ~(adder_out[WIDTH])};
             ADDER_ADD : out = adder_out[WIDTH:1];
             ADDER_SUB : out = adder_out[WIDTH:1];
             default : out = 'X;
@@ -39,18 +39,16 @@ module adder #(parameter int WIDTH = 12)
 endmodule
 
 module shifter #(
-    parameter int WIDTH=32,
-    parameter int SBITS=3,
-    parameter logic BIAS=0
+    parameter int WIDTH=32
 ) (
     input logic [WIDTH-1:0] val,
-    input logic [SBITS-1:0] sham,
+    input logic [$clog2(WIDTH)-1:0] sham,
     input logic right_shift,
-    input arith_shift,
+    input logic arith_shift,
     output logic [WIDTH-1:0] out
 );
-    wire [WIDTH-1:0] sel_in;
-    assign sel_in = right_shift ? val : {<<{val}};
-    wire [WIDTH-1:0] tmp_out = {{arith_shift ? val[WIDTH-1]: 1'b0}, sel_in} >> (sham+BIAS);
+    wire signed [WIDTH:0] sel_in = {{arith_shift ? val[WIDTH-1]: 1'b0},
+                                  {right_shift ? val : {<<{val}}}};
+    wire [WIDTH-1:0] tmp_out = {sel_in >>> sham}[WIDTH-1:0];
     assign out = right_shift ? tmp_out : {<<{tmp_out}};
 endmodule
