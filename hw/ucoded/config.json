@@ -1,0 +1,6 @@
+{
+  "DESIGN_NAME": "chip",
+  "VERILOG_FILES": ["dir::ucoded.v"],
+  "CLOCK_PERIOD": 25,
+  "CLOCK_PORT": "clk"
+}
