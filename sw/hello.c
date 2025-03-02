@@ -1,6 +1,5 @@
-char *msg = "Hello World!";
+#include <stdio.h>
 int main() {
-    volatile char *out = (char*)0x8000000;
-    for (char *c = msg; *c; c++)
-        *out = *c;
+    printf("Hello, World!\n");
+    return 0;
 }
