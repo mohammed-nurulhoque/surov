@@ -25,10 +25,12 @@ module adder #(parameter int WIDTH = 12)
     wire logic[WIDTH+1:0] adder_out = adder_a + adder_b;
     assign cout = adder_out[WIDTH+1];
 
+    wire logic or_out = |adder_out;
+
 	always_comb begin
         unique case (adderOp_t'(op))
-            ADDER_EQ: out = {31'b0, (adder_out[WIDTH:1] == 0)};
-            ADDER_NE: out = {31'b0, (adder_out[WIDTH:1] != 0)};
+            ADDER_EQ: out = {31'b0, ~or_out};
+            ADDER_NE: out = {31'b0, or_out};
             ADDER_LT, ADDER_LTU: out = {31'b0, adder_out[WIDTH+1]};
             ADDER_GE, ADDER_GEU: out = {31'b0, ~(adder_out[WIDTH+1])};
             ADDER_ADD : out = adder_out[WIDTH:1];
@@ -47,8 +49,9 @@ module shifter #(
     input logic arith_shift,
     output logic [WIDTH-1:0] out
 );
+    wire[WIDTH-1:0] reverse = {<<{val}}; 
     wire signed [WIDTH:0] sel_in = {{arith_shift ? val[WIDTH-1]: 1'b0},
-                                  {right_shift ? val : {<<{val}}}};
-    wire [WIDTH-1:0] tmp_out = {sel_in >>> sham}[WIDTH-1:0];
+                                  {right_shift ? val : reverse}};
+    wire [WIDTH-1:0] tmp_out = WIDTH'(sel_in >>> sham);
     assign out = right_shift ? tmp_out : {<<{tmp_out}};
 endmodule

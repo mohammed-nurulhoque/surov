@@ -1,3 +1,5 @@
+`default_nettype none
+
 function logic has_d2 (input word_t inst);
     unique case (opcode_t'(ext_opcode(inst)))
         OP_IMM, OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE: has_d2 = 0;
@@ -202,7 +204,7 @@ module core
 
     wire sig_sr = opFunc_t'(ext_f3(inst)) == FUNC_SR;
     wire sig_sa = ext_arith_bit(inst);
-    wire[WSHAM-1:0] sham = {((opcode == OP_OP)? rs2 : ext_i_imm(inst))}[4:0];
+    wire[WSHAM-1:0] sham = {((opcode == OP_OP)? rs2 : ext_i_imm(inst))}[WSHAM-1:0];
     word_t shifter_out;
     shifter #(.WIDTH(WDATA)) sh(rs1, sham, sig_sr, sig_sa, shifter_out);
 
