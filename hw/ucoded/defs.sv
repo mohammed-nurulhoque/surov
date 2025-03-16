@@ -57,7 +57,6 @@ typedef enum bit[2:0] {
     ADDER_GEU = 3'b111
 } adderOp_t;
 
-`define PC_INIT 32'h80000000
 `define CYCLE_INIT EX
 `define INST_INIT 32'h00_00_00_07
 

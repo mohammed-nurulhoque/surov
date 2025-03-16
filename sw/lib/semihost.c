@@ -1,63 +1,48 @@
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <machine/syscall.h>
 
 #pragma clang diagnostic ignored "-Wint-conversion"
+#pragma GCC diagnostic ignored "-Wint-conversion"
 
-enum syscall {
-    WRITE,
-    KILL,
-    GETPID,
-    READ,
-    SBRK,
-    LSEEK,
-    ISATTY,
-    FSTAT,
-    CLOSE,
-    EXIT
-};
+extern void *syscall0(int syscall);
+extern void *syscall1(int syscall, void *);
+extern void *syscall2(int syscall, void *, void *);
+extern void *syscall3(int syscall, void *, void *, void *);
 
-extern void *syscall0(enum syscall);
-extern void *syscall1(enum syscall, void *);
-extern void *syscall2(enum syscall, void *, void *);
-extern void *syscall3(enum syscall, void *, void *, void *);
+// ssize_t puts(int fd, const void *buf, size_t count) {
+//     return (ssize_t)syscall3(PUTS, fd, buf, count);
+// }
 
 ssize_t _write(int fd, const void *buf, size_t count) {
-    return (ssize_t)syscall3(WRITE, fd, buf, count);
-}
-
-int _kill(pid_t pid, int sig) {
-    return (int)syscall2(KILL, pid, sig);
-}
-
-pid_t _getpid(void) {
-    return (pid_t)syscall0(GETPID);
+    return (ssize_t)syscall3(SYS_write, fd, buf, count);
 }
 
 ssize_t _read(int fd, void *buf, size_t count) {
-    return (ssize_t)syscall3(READ, fd, buf, count);
+    return (ssize_t)syscall3(SYS_read, fd, buf, count);
 }
 
 void *_sbrk(intptr_t increment) {
-    return syscall1(SBRK, increment);
+    return syscall1(SYS_brk, increment);
 }
 
 off_t _lseek(int fd, off_t offset, int whence) {
-    return (off_t)syscall3(LSEEK, fd, offset, whence);
+    return (off_t)syscall3(SYS_lseek, fd, offset, whence);
 }
 
 int _isatty(int fd) {
-    return (int)syscall1(ISATTY, fd);
+    return (int)syscall1(SEMIHOST_istty, fd);
 }
 
 int _fstat(int fd, struct stat *statbuf) {
-    return (int)syscall2(FSTAT, fd, statbuf);
+    return (int)syscall2(SYS_fstat, fd, statbuf);
 }
 
 int _close(int fd) {
-    return (int)syscall1(CLOSE, fd);
+    return (int)syscall1(SYS_close, fd);
 }
 
 [[noreturn]] void _exit(int status) {
-    syscall1(EXIT, status);
+    syscall1(SYS_exit, status);
 }
 

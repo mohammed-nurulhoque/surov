@@ -1,7 +1,12 @@
     .section .start, "ax"
     .global _start
-    .global _sp_start
+    .global __global_pointer
 _start:
-    addi sp, zero, 0x7fc
+    .option push  
+    .option norelax  
+    la gp, __global_pointer$
+    la sp, _end + 1024
+    .option pop
     call main
-    ebreak
+    li a7, 93
+    ecall

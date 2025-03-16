@@ -8,8 +8,10 @@
 #include <verilated.h>
 #include <verilated_vcd_c.h>
 
-#include "Vcore.h"
-#include "Vcore___024unit.h"
+#include "Vrfcore.h"
+#include "Vrfcore___024root.h"
+#include "Vrfcore_rfcore.h"
+#include "Vrfcore_core.h"
 
 enum mem_addr_t {
     MEM_B =  0b000,
@@ -19,15 +21,19 @@ enum mem_addr_t {
     MEM_HU = 0b101
 };
 
-static const int RF_SIZE = 32;
+enum rvreg {
+    zero, ra, sp, gp,
+    tp, t0, t1, t2,
+    s0, s1,
+    a0, a1, a2, a3, a4, a5, a6, a7, 
+    s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, 
+    t3, t4, t5, t6 
+};
 
-static const char *regname[] = {
-    "zero", "ra", "sp", "gp",
-    "tp", "t0", "t1", "t2",
-    "s0", "s1",
-    "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", 
-    "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", 
-    "t3", "t4", "t5", "t6" 
+enum Syscall {
+    READ = 63,
+    WRITE = 64,
+    EXIT = 93
 };
 
 void print_help(char *bin, int ecode) {
@@ -48,16 +54,15 @@ class Memory {
     Memory(unsigned size, size_t start=0)
         : mem(size, 0), start(start) {}
 
-    void flash(unsigned char *data, size_t len) {
-        mem.resize(len);
-        memcpy(&mem[0], data, len);
-    }
-
-    void flash(char *filename, size_t minsize=0) {
+    void flash(char *filename, size_t stacksize=1024) {
         size_t fsize = std::filesystem::file_size(filename);
-        mem.resize(std::max(fsize+4, minsize)); // hack because last instruction might fetch next
+        mem.resize(fsize + stacksize);
         std::ifstream f(filename, std::ios::binary);
         f.read(&mem[0], fsize);
+    }
+
+    void print_str(unsigned addr, unsigned nbytes) {
+        fwrite(&mem[addr-start], nbytes, 1, stdout);
     }
 
     void dump() {
@@ -75,7 +80,6 @@ class Memory {
 
     int load(unsigned addr, mem_addr_t addr_type, unsigned &output) {
         unsigned addr_size = 1 << (addr_type & 0b11);
-        fprintf(stderr, "load %d@%x = ", addr_size, addr);
         if (addr + addr_size > start + mem.size())
             return 1;
         word_bytes out {};
@@ -90,14 +94,12 @@ class Memory {
             out.word = (int32_t)(int16_t)out.word;
             break;
         }
-        fprintf(stderr, "%x/%c\n", out.word, (char)out.word);
         output = out.word;
         return 0;
     }
 
     unsigned store(unsigned addr, unsigned val, mem_addr_t addr_type) {
         unsigned addr_size = 1 << (addr_type & 0b11);
-        fprintf(stderr, "store %d@%x = %x\n", addr_size, addr, val);
         if (addr + addr_size > start + mem.size())
             return 1;
         word_bytes val_bytes { .word = val };
@@ -112,7 +114,7 @@ class Memory {
 int main(int argc, char *argv[]) {
     if (argc < 2)
         assert("expert 1 argument" && false);
-    Vcore dut;
+    Vrfcore dut;
     size_t mem_start = 0;
     if (argc >= 3) {
         assert(sscanf(argv[2], "0x%lx", &mem_start) == 1);
@@ -132,8 +134,6 @@ int main(int argc, char *argv[]) {
 
     dmem.flash(argv[1], 0x2004);
 
-    uint32_t regfile[RF_SIZE] = {};
-
     m_trace->dump(sim_time++);
     dut.rst = 1;
     dut.memread_data = start_addr;
@@ -144,47 +144,40 @@ int main(int argc, char *argv[]) {
     dut.eval();
     m_trace->dump(sim_time++);
     dut.rst = 0;
- 
+    dut.clk = 0;
+    dut.eval();
+    m_trace->dump(sim_time++);
     for (int i=0;; i++) {
-        dut.clk = 0;
-        dut.eval();
-        if (dut.cycle == 0)
-            instr_count++;
+        if (dut.rfcore->c->cycle == 0) {instr_count++;}
+        
         // load
         if (dut.mem_read && dmem.load(dut.mem_addr, (mem_addr_t)dut.mem_size, dut.memread_data)) {
                 m_trace->close();
                 assert("load error" && false);
         }
         // store
-        if (dut.mem_wren) {
-            if (dut.mem_addr == 0x8000000) {
-                if (dut.mem_size == MEM_B) {
-                    putc(dut.memwrite_data, stdout);
-                    fprintf(stderr, "wrote byte %c\n", (char)dut.memwrite_data);
-                } else if (dut.mem_size == MEM_W & dut.memwrite_data == 0xffffffff) {
-                    fprintf(stderr, "Finished Simulation, gp: %d\n", regfile[3]);
-                    break;
-                }
-            }
-            else if (dmem.store(dut.mem_addr, dut.memwrite_data, (mem_addr_t)(dut.mem_size))) {
-                m_trace->close();
-                assert("store error" && false);
-            }
-        }
-        // RF read
-        if (dut.rf_read) {
-            assert(dut.regnum < RF_SIZE && "invalid regnum");
-            dut.rfread_data = regfile[dut.regnum];
-            fprintf(stderr, "read %s = %x\n", regname[dut.regnum], regfile[dut.regnum]);
-        }
-        dut.eval();
-        m_trace->dump(sim_time++);
-        // RF write
-        if (dut.rf_wren && dut.regnum) {
-            fprintf(stderr, "write %s = %x\n", regname[dut.regnum], dut.rfwrite_data);
-            regfile[dut.regnum] = dut.rfwrite_data;
+        if (dut.mem_wren && dmem.store(dut.mem_addr, dut.memwrite_data, (mem_addr_t)(dut.mem_size))) {
+            m_trace->close();
+            assert("store error" && false);
         }
 
+        if (dut.host_trap) {
+            unsigned inst = dut.rfcore->c->inst;
+            if (inst == 0x73) {// ecall
+                switch (dut.rfcore->regfile[rvreg::a7]) {
+                    case Syscall::EXIT:
+                        goto END_SIM;
+                    case Syscall::WRITE: {
+                        unsigned address = dut.rfcore->regfile[rvreg::a1];
+                        unsigned nbytes = dut.rfcore->regfile[rvreg::a2];
+                        dmem.print_str(address, nbytes);
+                    }
+                }
+            } else if ((inst & 0xC0002073) == 0xC0002073) { // rdcycle
+                dut.rfcore->regfile[(inst >> 7) & 31] = sim_time/2;
+            }
+        }
+        dut.clk = 0;
         dut.eval();
         m_trace->dump(sim_time++);
 
@@ -193,9 +186,9 @@ int main(int argc, char *argv[]) {
         m_trace->dump(sim_time++);
     }
 
-
+END_SIM:
     m_trace->close();
-    fprintf(stderr, "SUCCESS. Completed %d instructions, %d cycles\n", instr_count, sim_time/3-1);
+    fprintf(stderr, "SUCCESS. Completed %d instructions, %d cycles\n", instr_count, sim_time/2-1);
     // dmem.dump();
     exit(EXIT_SUCCESS);
 }

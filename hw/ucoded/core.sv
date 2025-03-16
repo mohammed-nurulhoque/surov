@@ -2,7 +2,7 @@
 
 function logic has_d2 (input word_t inst);
     unique case (opcode_t'(ext_opcode(inst)))
-        OP_IMM, OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE: has_d2 = 0;
+        OP_IMM, OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE, OP_ECALLBR: has_d2 = 0;
         default: has_d2 = 1;
     endcase
 endfunction
@@ -10,7 +10,7 @@ endfunction
 function logic d_read_rs (cycle_t cycle, input opcode_t op);
     if (cycle == D1) begin
         unique case (op)
-            OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE: d_read_rs = 0;
+            OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE, OP_ECALLBR: d_read_rs = 0;
             default: d_read_rs = 1;
         endcase
     end else begin
@@ -20,6 +20,14 @@ function logic d_read_rs (cycle_t cycle, input opcode_t op);
         endcase
     end
 endfunction
+
+function ex_rf_wren(opcode_t op);
+    unique case (op)
+        OP_BRANCH, OP_ECALLBR, OP_FENCE, OP_STORE: ex_rf_wren = 0;
+        default: ex_rf_wren = 1;
+    endcase
+endfunction
+
 
 function logic is_read_mem (cycle_t cycle,
                             logic is_load,
@@ -44,8 +52,6 @@ module core
     input logic clk,
     input logic rst,
 
-    output cycle_t cycle,
-
     output logic rf_read,
     output logic rf_wren,
     output logic[WRFI-1:0]  regnum,
@@ -57,11 +63,14 @@ module core
     output logic[WPTR-1:0]  mem_addr,
     output mem_addr_t mem_size,
     input  logic[WDATA-1:0] memread_data,
-    output logic[WDATA-1:0] memwrite_data
+    output logic[WDATA-1:0] memwrite_data,
+
+    output logic host_trap
 );
     logic[WPTR-1:0] pc;
     logic[WPTR-1:0] pc_next;
-    word_t inst;
+    cycle_t cycle /*verilator public*/;
+    word_t inst   /*verilator public*/;
     word_t rs1;
     word_t rs2;
     word_t saved_addr; // lsu address and branch target
@@ -91,8 +100,6 @@ module core
                 pc_next <= adder_out; // garbage for jalr
                 is_load <= opcode == OP_LOAD;
                 is_store <= opcode == OP_STORE;
-                if ((opcode == OP_ECALLBR))
-                    cycle <= D1;
             end
             D2: begin
                 cycle <= EX;
@@ -240,7 +247,7 @@ module core
                     regnum = loadrd;
                     rfwrite_data = memread_data;
                 end else begin
-                    rf_wren = (opcode != OP_BRANCH);
+                    rf_wren = ex_rf_wren(opcode);
                     regnum = ext_rd(inst);
                     rfwrite_data = alu_out;
                 end
@@ -269,11 +276,7 @@ module core
             mem_addr = saved_addr;
             mem_size = saved_mem_size;
         end 
-        if (cycle == D1 && opcode == OP_ECALLBR) begin
-            mem_wren = 1;
-            mem_addr = 32'h8000000;
-            mem_size = MEM_W;
-            memwrite_data = 32'hffffffff;
-        end
     end
+
+    assign host_trap = (cycle == D1 & opcode == OP_ECALLBR);
 endmodule
