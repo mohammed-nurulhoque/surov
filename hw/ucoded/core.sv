@@ -46,7 +46,7 @@ module core
     parameter int NUMREGS=32,
     localparam WDATA = 32,
     localparam WPTR = 32,
-    localparam WSHAM = 5,
+    localparam WSHAM = $clog2(WDATA),
     localparam WRFI = $clog2(NUMREGS)
 ) (
     input logic clk,
@@ -211,7 +211,8 @@ module core
 
     wire sig_sr = opFunc_t'(ext_f3(inst)) == FUNC_SR;
     wire sig_sa = ext_arith_bit(inst);
-    wire[WSHAM-1:0] sham = {((opcode == OP_OP)? rs2 : ext_i_imm(inst))}[WSHAM-1:0];
+    sham_t sham;
+    assign sham = sham_t'(((opcode == OP_OP)? rs2 : ext_i_imm(inst)));
     word_t shifter_out;
     shifter #(.WIDTH(WDATA)) sh(rs1, sham, sig_sr, sig_sa, shifter_out);
 

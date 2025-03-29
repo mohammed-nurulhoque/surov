@@ -1,5 +1,6 @@
 typedef logic[31:0] word_t;
 typedef logic[4:0]  regnum_t;
+typedef logic[4:0]  sham_t;
 
 typedef enum logic[1:0] { D1, D2, EX, BR } cycle_t;
 
