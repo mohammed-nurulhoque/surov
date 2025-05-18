@@ -10,43 +10,40 @@ module shifter3 #(
     parameter int WIDTH=32,
     localparam int WSHAM=$clog2(WIDTH)
 ) (
+    input logic clk,
+    input logic rst,
+    input logic start,
     input logic [WIDTH-1:0] val_i,
     input logic [WSHAM-1:0] sham_i,
     input logic right_shift,
     input logic arith_shift,
-    input logic clk,
-    input logic rst,
-    input logic start,
 
     output logic [WIDTH-1:0] val_o,
+    output logic [WSHAM-1:0] sham_o,
     output logic done
 );
     logic busy;
-    logic [WSHAM-1:0] shift_rem; // register for remaining shift
-
     logic [1:0] shift_cur; // Amount to shift in this cycle (up to 3)
     wire signed [WIDTH:0] val_ext = {val_i, {(busy && arith_shift) ? val_i[0]: 1'b0}};
-    wire [WSHAM-1:0] sham = (!busy) ? sham_i : shift_rem;
-    wire [WSHAM-1:0] shift_next = sham - WSHAM'(shift_cur);
+    assign sham_o = sham_i - WSHAM'(shift_cur);
 
     always_comb begin
-        shift_cur = (sham > 3) ? 2'd3 : 2'(sham);
+        shift_cur = (sham_i > 3) ? 2'd3 : 2'(sham_i);
         if (!busy && right_shift) shift_cur = 0;
     end
 
-    assign done = busy? shift_next == 0 : !(start && shift_next != 0);
+    assign done = busy? sham_o == 0 : !(start && sham_o != 0);
     
     // State machine sequential logic
     always_ff @(posedge clk) begin
         if (rst) busy <= 0;
         else busy <= !done;
-        shift_rem <= shift_next;
     end
 
     // shift operation
     wire [WIDTH:0] val_ext_r = {<<{val_ext}};
     wire [WIDTH-1:0] reversed = WIDTH'($signed(val_ext_r) >>> shift_cur);
     wire [WIDTH-1:0] shifted = {<<{reversed}};
-    wire sel_reverse = busy ? (right_shift && shift_next==0) : (start && right_shift && shift_next!=0);
+    wire sel_reverse = busy ? (right_shift && sham_o==0) : (start && right_shift && sham_o!=0);
     assign val_o = sel_reverse ? reversed : shifted;
 endmodule

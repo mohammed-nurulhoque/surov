@@ -15,12 +15,14 @@ bool test_case(Vshifter3* top, VerilatedVcdC* tfp, uint64_t& sim_time,
     top->eval();
     tfp->dump(sim_time++);
     while (!top->done) {
-        uint32_t tmp = top->val_o;
+        uint32_t val_tmp = top->val_o;
+        uint32_t sham_tmp = top->sham_o;
         top->clk = 1;
         top->eval();
         tfp->dump(sim_time++);
         top->start = 0;
-        top->val_i = tmp;
+        top->val_i = val_tmp;
+        top->sham_i = sham_tmp;
         top->clk = 0;
         top->eval();
         tfp->dump(sim_time++);

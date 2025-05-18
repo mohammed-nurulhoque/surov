@@ -58,6 +58,24 @@ typedef enum bit[2:0] {
     ADDER_GEU = 3'b111
 } adderOp_t;
 
+typedef enum bit[3:0] {
+    ALU_ADD = 4'b0000,
+    ALU_SUB = 4'b0010,
+    ALU_SLL = 4'b0001,
+    ALU_SRL = 4'b0101,
+    ALU_SRA = 4'b0011,
+    ALU_XOR = 4'b0100,
+    ALU_OR  = 4'b0110,
+    ALU_AND = 4'b0111,
+
+    ALU_EQ  = 4'b1000,
+    ALU_NE  = 4'b1001,
+    ALU_LT  = 4'b1100,
+    ALU_GE  = 4'b1101,
+    ALU_LTU = 4'b1110,
+    ALU_GEU = 4'b1111
+} ALUOp_t;
+
 `define CYCLE_INIT EX
 `define INST_INIT 32'h00_00_00_07
 
