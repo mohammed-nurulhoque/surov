@@ -7,33 +7,27 @@
 #include <cstdint>
 
 enum Op {
-    ALU_ADD = 0b0000,
-    ALU_SUB = 0b0010,
-    ALU_SLL = 0b0001,
-    ALU_SRL = 0b0101,
-    ALU_SRA = 0b0011,
-    ALU_XOR = 0b0100,
-    ALU_OR  = 0b0110,
-    ALU_AND = 0b0111,
-    
-    ALU_EQ  = 0b1000,
-    ALU_NE  = 0b1001,
-    ALU_LT  = 0b1100,
-    ALU_GE  = 0b1101,
-    ALU_LTU = 0b1110,
-    ALU_GEU = 0b1111
+    ADDER_ADD = 0b010,
+    ADDER_SUB = 0b011,
+
+    ADDER_EQ  = 0b000,
+    ADDER_NE  = 0b001,
+    ADDER_LT  = 0b100,
+    ADDER_GE  = 0b101,
+    ADDER_LTU = 0b110,
+    ADDER_GEU = 0b111
 };
 
 std::string op_name(uint32_t op) {
     switch (op) {
-        case ALU_ADD: return "ADD";
-        case ALU_SUB: return "SUB";
-        case ALU_EQ: return "EQ";
-        case ALU_NE: return "NE";
-        case ALU_LT: return "LT";
-        case ALU_GE: return "GE";
-        case ALU_LTU: return "LTU";
-        case ALU_GEU: return "GEU";
+        case ADDER_ADD: return "ADD";
+        case ADDER_SUB: return "SUB";
+        case ADDER_EQ: return "EQ";
+        case ADDER_NE: return "NE";
+        case ADDER_LT: return "LT";
+        case ADDER_GE: return "GE";
+        case ADDER_LTU: return "LTU";
+        case ADDER_GEU: return "GEU";
     }
 }
 
@@ -77,28 +71,28 @@ int run_test(Vadder3* top, VerilatedVcdC* tfp, uint64_t &sim_time,
     uint32_t expected_result;
     
     switch (op) {
-        case ALU_ADD:
+        case ADDER_ADD:
             expected_result = src_a + src_b;
             break;
-        case ALU_SUB:
+        case ADDER_SUB:
             expected_result = src_a - src_b;
             break;
-        case ALU_EQ:
+        case ADDER_EQ:
             expected_result = src_a == src_b;
             break;
-        case ALU_NE:
+        case ADDER_NE:
             expected_result = src_a != src_b;
             break;
-        case ALU_LT:
+        case ADDER_LT:
             expected_result = ((int32_t)src_a < (int32_t)src_b);
             break;
-        case ALU_GE:
+        case ADDER_GE:
             expected_result = ((int32_t)src_a >= (int32_t)src_b);
             break;
-        case ALU_LTU:
+        case ADDER_LTU:
             expected_result = (src_a < src_b);
             break;
-        case ALU_GEU:
+        case ADDER_GEU:
             expected_result = (src_a >= src_b);
             break;
         default:
@@ -119,6 +113,19 @@ int run_test(Vadder3* top, VerilatedVcdC* tfp, uint64_t &sim_time,
     tfp->dump(sim_time++);
     return 0;
     return cycles;
+}
+
+int run_tests_for_values(Vadder3* top, VerilatedVcdC* tfp, uint64_t &sim_time, uint32_t src_a, uint32_t src_b) {
+    std::array<uint32_t, 8> op_names = {
+        ADDER_ADD, ADDER_SUB,
+        ADDER_EQ, ADDER_NE, ADDER_LT, ADDER_GE, ADDER_LTU, ADDER_GEU
+    };
+    for (uint32_t op : op_names) {
+        if (run_test(top, tfp, sim_time, src_a, src_b, op) == -1) {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 int main(int argc, char** argv) {
@@ -150,10 +157,7 @@ int main(int argc, char** argv) {
     
     for (uint32_t src_a : test_inputs) {
         for (uint32_t src_b : test_inputs) {
-            if (run_test(top, tfp, sim_time, src_a, src_b, ALU_ADD) == -1) {
-                goto EXIT;
-            }
-            if (run_test(top, tfp, sim_time, src_a, src_b, ALU_SUB) == -1) {
+            if (run_tests_for_values(top, tfp, sim_time, src_a, src_b) == -1) {
                 goto EXIT;
             }
         }
