@@ -4,8 +4,6 @@
 #include <stdio.h>
 
 int main() {
-    char s[8] = {};
-    sprintf(s, "Hello World %d\n", 16);
-    print_str(s);
+    puts("Hello World\n");
     return 0;
 }

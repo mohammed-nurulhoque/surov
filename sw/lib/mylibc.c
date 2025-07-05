@@ -4,12 +4,12 @@
 #include <stdarg.h>
 
 int printf(const char *__restrict s, ...) {
-    // static char tmp[120];
-    // va_list args;  
-    // va_start(args, s);  
-    // int ret = vsprintf(tmp, s, args);
-    // va_end(args);
-    return _write(1, s, 1);
+    static char tmp[120];
+    va_list args;  
+    va_start(args, s);  
+    int ret = vsprintf(tmp, s, args);
+    va_end(args);
+    return _write(1, tmp, ret);
 }
 
 int puts(const char *s) {

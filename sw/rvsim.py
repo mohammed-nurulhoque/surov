@@ -139,7 +139,7 @@ class CPU:
                         shifts[imm] += 1
                         rdval = rs1val << imm
                         inext = self.mem.lw(next_pc)
-                        if OPC(opcode(inext)) == OPC.opop and OPOPF3(f3(instr)) == OPOPF3.addsub and\
+                        if OPC(opcode(inext)) == OPC.opop and OPOPF3(f3(inext)) == OPOPF3.addsub and\
                            rs1(inext) == rd(instr) and imm in {1, 2, 3}:
                             zbas[imm] += 1
                     case OPIMMF3.sri:
@@ -347,8 +347,6 @@ if __name__ == "__main__":
             sys.stderr.write(f'called exit with code {t.exit_code}\n')
         sys.stderr.write(f'cycles: {cpu.cycle}\n')
         sys.stderr.write(f'retired: {cpu.retired}\n')
-        sys.stderr.write('shift counters:\n')
-        for k, v in shifts.items():
-            sys.stderr.write(f"{k}, {v}\n")
-        sys.stderr.write(f'{adderx}')
-        sys.stderr.write(f'zbas {zbas}')
+        sys.stderr.write(f'shifts: {shifts}\n')
+        sys.stderr.write(f'adds: {adderx}\n')
+        sys.stderr.write(f'zbas {zbas}\n')
