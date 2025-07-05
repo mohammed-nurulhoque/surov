@@ -18,7 +18,7 @@ This is my attempt to learn microprocessor design. r55 is (will be) a 5-stage pi
 ### How to run
 ```
 cd hw/ucoded
-make
+make core run
 obj_dir/Vcore <path-to-bin-file> [bin-start e.g. 0x1000] [exe-start-address e.g. 0x1008]
 ```
 The supplied sw/a.bin doesn't require the optional args above.

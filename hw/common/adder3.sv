@@ -1,15 +1,3 @@
-// module adder #(
-//     parameter int WIDTH = 16
-// ) (
-//     input logic[WIDTH-1:0] src_a,
-//     input logic[WIDTH-1:0] src_b,
-//     output logic[WIDTH-1:0] out
-// );
-
-//     assign out = src_a + src_b;
-// endmodule
-
-
 module adder3 #(
     parameter int WIDTH = 32,
     parameter int WADD = 16,
