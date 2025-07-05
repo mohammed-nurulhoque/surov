@@ -1,2 +1,5 @@
-hw/obj_dir/
+**/obj_dir/
 *.pyc
+*.vcd
+*.elf
+*.bin
