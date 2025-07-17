@@ -1,3 +1,5 @@
+/* verilator lint_off CASEINCOMPLETE */
+
 module control (
     input logic clk,
     input logic rst,
@@ -29,7 +31,7 @@ module control (
             default:   max_cycle = 0; // should not happen
         endcase
     end
-    
+
     always_ff @(posedge clk) begin
         if (rst) begin
             cycle <= `CYCLE_INIT;
@@ -47,27 +49,23 @@ module control (
         end
     end
 
-    assign ctrl.opcode = current_opcode;
-    assign ctrl.start = start;
+    always_comb begin
+        ctrl.opcode = current_opcode;
+        ctrl.start = start;
 
     // update PC
-    always_comb begin
         case (current_opcode)
             OP_OP, OP_JALR: ctrl.update_pc = cycle == 1;
             default: ctrl.update_pc = cycle == 0;
         endcase
-    end
 
     // update instruction
-    always_comb begin
         case (current_opcode)
             OP_LOAD, OP_STORE: ctrl.update_instr = cycle == 1;
             default: ctrl.update_instr = cycle == max_cycle;
         endcase
-    end
 
     // read RF rs1, rs2
-    always_comb begin
         ctrl.rf_rs1 = cycle == 0;
         ctrl.rf_rs2 = 0;
         case (current_opcode)
@@ -78,30 +76,24 @@ module control (
             end
             OP_JAL, OP_LUI, OP_AUIPC: ctrl.rf_rs1 = 0;
         endcase
-    end
 
-    assign ctrl.save_rd = cycle == 0;
-    assign ctrl.save_op = (current_opcode == OP_BRANCH && cycle == 1);
+        ctrl.save_rd = cycle == 0;
+        ctrl.save_op = (current_opcode == OP_BRANCH && cycle == 1);
 
-    always_comb begin
         case (current_opcode)
             OP_BRANCH, OP_JAL, OP_AUIPC: ctrl.save_pc = cycle == 0;
             default: ctrl.save_pc = 0;
         endcase
-    end
 
-    assign ctrl.save_pc_next = (current_opcode == OP_JALR && cycle == 0);
-    assign ctrl.save_br_target = (current_opcode == OP_BRANCH && cycle == 1);
-    
-    always_comb begin
+        ctrl.save_pc_next = (current_opcode == OP_JALR && cycle == 0);
+        ctrl.save_br_target = (current_opcode == OP_BRANCH && cycle == 1);
+
         case (current_opcode)
             OP_LOAD: ctrl.memop = cycle == 1;
             OP_STORE: ctrl.memop = cycle == 2;
             default: ctrl.memop = 0;
         endcase
-    end
 
-    always_comb begin
         case (cycle)
             0: case (current_opcode)
                 OP_OP: ctrl.alu_ctrl = ALUC_NONE;
@@ -141,6 +133,6 @@ module control (
         endcase
     end
     assign mem_wren = current_opcode == OP_STORE && cycle == 2;
-    
+
 
 endmodule

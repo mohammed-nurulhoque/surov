@@ -1,3 +1,5 @@
+/* verilator lint_off CASEINCOMPLETE */
+
 module alu3 #(
     parameter int WIDTH = 32,
     parameter int WSHAM = $clog2(WIDTH)
