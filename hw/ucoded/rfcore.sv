@@ -23,7 +23,7 @@ module rfcore #(
     logic[WDATA-1:0] rfread_data;
     logic[WDATA-1:0] rfwrite_data;
 
-    logic[WDATA-1:0] regfile[0:NUMREGS-1];
+    logic[WDATA-1:0] regfile[0:NUMREGS-1] /*verilator public*/;
 
     core c(clk, rst,
         rf_read, rf_wren, regnum, rfread_data, rfwrite_data,

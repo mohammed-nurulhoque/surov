@@ -1,3 +1,4 @@
+#define _LIBC 
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>

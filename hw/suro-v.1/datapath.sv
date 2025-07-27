@@ -5,18 +5,21 @@ module datapath (
     input ctrl_t ctrl,
     output logic done,
 
-    output opcode_t opcode,
+    output word_t inst,
 
     output regnum_t  regnum,
     input  word_t rfread_data,
     output word_t rfwrite_data,
+
+    output cntr_t cntr,
+    input word_t cntr_data,
 
     output word_t  mem_addr,
     output mem_addr_t mem_size,
     input  word_t memread_data,
     output word_t memwrite_data
 );
-    dp_regs_t r;
+    dp_regs_t r /*verilator public*/;
     // update state registers
     always_ff @(posedge clk) begin
         // reset
@@ -25,8 +28,10 @@ module datapath (
             r._1.inst  <= `INST_INIT;
         end else begin
             if (ctrl.update_pc) begin
-                if (ctrl.alu_ctrl == ALUC_BRANCH_OP && &alu_out)
-                    r.pc <= r._1.branch_target; // branch target
+                if (ctrl.alu_ctrl == ALUC_BRANCH_OP) begin
+                    if (alu_out != 0)
+                        r.pc <= r._1.branch_target; // branch target
+                end
                 else 
                     r.pc <= alu_out;
             end
@@ -41,8 +46,11 @@ module datapath (
             r._2.r1 <= rfread_data;
         else if (ctrl.alu_ctrl == ALUC_OPEXE)
             r._2.r1 <= alu_out;
+        else if (ctrl.save_store_target)
+            r._2.store_address <= alu_out;
         else if (ctrl.save_pc)
             r._2.saved_pc <= r.pc;
+
 
         if (ctrl.rf_rs2)
             r._3.r2 <= rfread_data;
@@ -50,12 +58,16 @@ module datapath (
             r._3.r2 <= word_t'(alu_shamt_out);
         else if (ctrl.save_pc_next)
             r._3.saved_pc_next <= alu_out;
+        else if (ctrl.update_cntr_data)
+            r._3.cntr_data <= cntr_data;
         
 
         if (ctrl.save_rd)
             r._4.rd <= ext_rd(r._1.inst);
-        else if (ctrl.save_op)
-            r._4.op <= ext_opcode(r._1.inst);
+        else if (ctrl.save_f3)
+            r._4.brf3 <= branch_t'(ext_f3(r._1.inst));
+        else if (ctrl.save_store_target)
+            r._4.store_size <= mem_addr_t'(ext_f3(r._1.inst));
     end
 
     // immediate extraction
@@ -119,14 +131,14 @@ module datapath (
                 alu_src_b = imm;
             end
             ALUC_OPEXE: begin
-                alu_src_b = r._3.r2;
+                alu_src_b = (ctrl.opcode == OP_OP) ? r._3.r2 : imm;
                 alu_f3 = ext_f3(r._1.inst);
-                alu_arith_bit = ext_arith_bit(r._1.inst);
+                alu_arith_bit = (ctrl.opcode == OP_OP) ? ext_arith_bit(r._1.inst) : 0;
                 alu_shadd = isShadd(r._1.inst);
             end
             ALUC_BRANCH_OP: begin
                 alu_src_b = r._3.r2;
-                alu_f3 = ext_f3(r._1.inst);
+                alu_f3 = r._4.brf3;
                 alu_branch = 1; // enable branch operation
             end
             default: begin
@@ -139,11 +151,12 @@ module datapath (
     always_comb begin
         regnum = ctrl.rf_rs1? ext_rs1(r._1.inst) :
                  ctrl.rf_rs2? ext_rs2(r._1.inst) :
-                 r._4.rd;
+                 (ctrl.opcode == OP_LUI) ? ext_rd(r._1.inst) : r._4.rd;
         
         case (ctrl.opcode)
             OP_LUI:  rfwrite_data = ext_u_imm(r._1.inst);
             OP_JALR: rfwrite_data = r._3.r2;
+            OP_SYS:  rfwrite_data = r._3.cntr_data;
             OP_LOAD: rfwrite_data = memread_data;
             default: rfwrite_data = alu_out;
         endcase
@@ -158,12 +171,12 @@ module datapath (
                 mem_addr = alu_out;
             end
             ctrl.opcode == OP_STORE && ctrl.memop: begin
-                mem_size = mem_addr_t'(ext_f3(r._1.inst));
+                mem_size = r._4.store_size;
                 mem_addr = r._2.store_address;
             end
             ctrl.alu_ctrl == ALUC_BRANCH_OP: begin
                 mem_size = MEM_W; 
-                mem_addr = (|alu_out) ? r._1.branch_target: r.pc; // branch target
+                mem_addr = (alu_out == 0) ? r.pc : r._1.branch_target; // branch target
             end
             default: begin
                 mem_size = MEM_W;
@@ -171,5 +184,7 @@ module datapath (
             end
         endcase
     end
+
+    assign inst = r._1.inst;
         
 endmodule

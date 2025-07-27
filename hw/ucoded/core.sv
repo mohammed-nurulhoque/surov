@@ -1,8 +1,15 @@
 `default_nettype none
 
+`define CYCLE_INIT EX
+`define INST_INIT 32'h00_00_00_07
+`define NOP  32'b000000000000_00000_000_00000_0010011
+`define OP_INIT 7'b0010011
+
+typedef logic[4:0] regnum_t;
+
 function logic has_d2 (input word_t inst);
     unique case (opcode_t'(ext_opcode(inst)))
-        OP_IMM, OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE, OP_ECALLBR: has_d2 = 0;
+        OP_IMM, OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE, OP_SYS: has_d2 = 0;
         default: has_d2 = 1;
     endcase
 endfunction
@@ -10,7 +17,7 @@ endfunction
 function logic d_read_rs (cycle_t cycle, input opcode_t op);
     if (cycle == D1) begin
         unique case (op)
-            OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE, OP_ECALLBR: d_read_rs = 0;
+            OP_LUI, OP_AUIPC, OP_JAL, OP_FENCE, OP_SYS: d_read_rs = 0;
             default: d_read_rs = 1;
         endcase
     end else begin
@@ -23,7 +30,7 @@ endfunction
 
 function ex_rf_wren(opcode_t op);
     unique case (op)
-        OP_BRANCH, OP_ECALLBR, OP_FENCE, OP_STORE: ex_rf_wren = 0;
+        OP_BRANCH, OP_SYS, OP_FENCE, OP_STORE: ex_rf_wren = 0;
         default: ex_rf_wren = 1;
     endcase
 endfunction
@@ -279,5 +286,5 @@ module core
         end 
     end
 
-    assign host_trap = (cycle == D1 & opcode == OP_ECALLBR);
+    assign host_trap = (cycle == D1 & opcode == OP_SYS);
 endmodule

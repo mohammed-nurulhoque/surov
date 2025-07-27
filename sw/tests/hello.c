@@ -1,9 +1,6 @@
-#include <string.h>
-#include <machine/syscall.h>
-#include <sys/unistd.h>
-#include <stdio.h>
-
+long _write(int fd, const void *buf, long count);
+char s[] = "Hello World!\n";
 int main() {
-    puts("Hello World\n");
+    _write(1, s, sizeof(s));
     return 0;
 }

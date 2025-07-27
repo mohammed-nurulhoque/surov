@@ -1,5 +1,4 @@
 typedef logic[31:0] word_t;
-typedef logic[4:0]  regnum_t;
 typedef logic[4:0]  sham_t;
 
 typedef enum logic[1:0] { D1, D2, EX, BR } cycle_t;
@@ -23,7 +22,7 @@ typedef enum bit[6:0] {
     OP_AUIPC    = 7'b00_101_11,
     OP_LUI      = 7'b01_101_11,
     OP_FENCE	= 7'b00_011_11,
-    OP_ECALLBR  = 7'b11_100_11
+    OP_SYS      = 7'b11_100_11
 } opcode_t;
 
 typedef enum bit[2:0] {
@@ -47,6 +46,13 @@ typedef enum bit[2:0] {
 } branch_t;
 
 typedef enum bit[2:0] {
+    SYS_CALLBR = 3'b000,
+    SYS_CSRRW,
+    SYS_CSRRS,
+    SYS_CSRRC
+} sys_f3_t;
+
+typedef enum bit[2:0] {
     ADDER_ADD = 3'b010,
     ADDER_SUB = 3'b011,
 
@@ -58,20 +64,15 @@ typedef enum bit[2:0] {
     ADDER_GEU = 3'b111
 } adderOp_t;
 
-`define CYCLE_INIT EX
-`define INST_INIT 32'h00_00_00_07
-`define NOP  32'b000000000000_00000_000_00000_0010011
-`define OP_INIT 7'b0010011
-
-function regnum_t ext_rd (input word_t inst);
+function logic[4:0] ext_rd (input word_t inst);
     return inst[11:7];
 endfunction
 
-function regnum_t ext_rs1 (input word_t inst);
+function logic[4:0] ext_rs1 (input word_t inst);
     return inst[19:15];
 endfunction
 
-function regnum_t ext_rs2 (input word_t inst);
+function logic[4:0] ext_rs2 (input word_t inst);
     return inst[24:20];
 endfunction
 

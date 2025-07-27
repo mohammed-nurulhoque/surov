@@ -2,7 +2,6 @@
 #include <fstream>
 #include <vector>
 #include <stdexcept>
-#include <format>
 
 #include <cstdlib>
 #include <cctype>
@@ -11,7 +10,10 @@
 #include <verilated_vcd_c.h>
 
 #include "Vcore.h"
-#include "Vcore___024root.h"
+#include "Vcore_core.h"
+#include "Vcore_datapath.h"
+#include "Vcore_control.h"
+#include "Vcore_rf.h"
 
 enum mem_addr_t {
     MEM_B =  0b000,
@@ -78,10 +80,10 @@ class Memory {
         putc('\n', stderr);
     }
 
-    unsigned load(unsigned addr, mem_addr_t addr_type, unsigned &output) {
+    unsigned load(unsigned addr, mem_addr_t addr_type) {
         unsigned addr_size = 1 << (addr_type & 0b11);
-        if (addr + addr_size > start + mem.size())
-            throw std::out_of_range(std::format("Address %x is out of range", addr));
+        if (addr < start || (addr + addr_size > start + mem.size()))
+            throw std::out_of_range("Address " + std::to_string(addr) + " is out of range");
         word_bytes out {};
         for (unsigned i = 0; i < addr_size; i++) {
             out.bytes[i] = mem[addr-start+i];
@@ -100,7 +102,7 @@ class Memory {
     void store(unsigned addr, unsigned val, mem_addr_t addr_type) {
         unsigned addr_size = 1 << (addr_type & 0b11);
         if (addr + addr_size > start + mem.size())
-            throw std::out_of_range(std::format("Address %x is out of range", addr));
+            throw std::out_of_range("Address " + std::to_string(addr) + " is out of range");
         word_bytes val_bytes { .word = val };
         for (unsigned i = 0; i < (1 << addr_type); i++) {
             mem[addr-start+i] = val_bytes.bytes[i];
@@ -134,7 +136,15 @@ int main(int argc, char *argv[]) {
 
     m_trace->dump(sim_time++);
     dut.rst = 1;
+    printf("passing %x as start_addr\n", start_addr);
+    printf("first instr: %x\n", dmem.load(start_addr, MEM_W));
     dut.memread_data = start_addr;
+    dut.clk = 0;
+    dut.eval();
+    m_trace->dump(sim_time++);
+    dut.clk = 1;
+    dut.eval();
+    m_trace->dump(sim_time++);
     dut.clk = 0;
     dut.eval();
     m_trace->dump(sim_time++);
@@ -146,35 +156,54 @@ int main(int argc, char *argv[]) {
     dut.eval();
     m_trace->dump(sim_time++);
     for (int i=0;; i++) {
-        if (dut.core->c->cycle == 0) {instr_count++;}
+        if (dut.core->cp->cycle == 0) {instr_count++;}
+
+        auto ext_inst = [&](auto r) {
+            return (r[3U] << 0x1bU) | (r[2U] >> 5U);
+        };
+        auto ext_pc = [&](auto r) {
+            return (r[4U] << 0x1bU) | (r[3U] >> 5U);
+        };
+
+        auto r = dut.core->dp->r;
+        unsigned pc = ext_pc(r);
+        unsigned inst = ext_inst(r);
         
         try {
             // load
-            if (dut.mem_read)
-                dmem.load(dut.mem_addr, (mem_addr_t)dut.mem_size, dut.memread_data);
+            if (dut.mem_rden) {
+                dut.memread_data = dmem.load(dut.mem_addr, (mem_addr_t)dut.mem_size);
+#ifdef DEBUG
+                fprintf(stderr, "LOAD pc: %08x addr: %08x size: %d val: %08x\n", pc, dut.mem_addr, 1<<(dut.mem_size &3), dut.memread_data);
+#endif
+            }
             // store
-            if (dut.mem_wren)
+            if (dut.mem_wren) {
                 dmem.store(dut.mem_addr, dut.memwrite_data, (mem_addr_t)(dut.mem_size));
+#ifdef DEBUG
+                fprintf(stderr, "STORE pc: %08x addr: %08x size: %d val: %08x\n", pc, dut.mem_addr, 1<<(dut.mem_size &3), dut.memwrite_data);
+#endif
+            }
         } catch (std::out_of_range &e) {
             fprintf(stderr, "Caught exception: %s\n", e.what());
             m_trace->close();
             exit(EXIT_FAILURE);
         }
 
-        if (dut.host_trap) {
-            unsigned inst = dut.core->c->inst;
+        if (dut.trap) {
+            auto& rf = dut.core->r->regfile;
             if (inst == 0x73) {// ecall
-                switch (dut.core->regfile[rvreg::a7]) {
+                switch (rf[rvreg::a7]) {
                     case Syscall::EXIT:
                         goto END_SIM;
                     case Syscall::WRITE: {
-                        unsigned address = dut.core->regfile[rvreg::a1];
-                        unsigned nbytes = dut.core->regfile[rvreg::a2];
+                        unsigned address = rf[rvreg::a1];
+                        unsigned nbytes = rf[rvreg::a2];
                         dmem.print_str(address, nbytes);
                     }
                 }
             } else if ((inst & 0xC0002073) == 0xC0002073) { // rdcycle
-                dut.core->regfile[(inst >> 7) & 31] = sim_time/2;
+                rf[(inst >> 7) & 31] = sim_time/2;
             }
         }
         dut.clk = 0;

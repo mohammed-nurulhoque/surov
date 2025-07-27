@@ -1,5 +1,8 @@
 **/obj_dir/
+**/.vscode/
 *.pyc
 *.vcd
 *.elf
 *.bin
+*.o
+*.v

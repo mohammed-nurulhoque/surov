@@ -4,21 +4,23 @@ module control (
     input logic clk,
     input logic rst,
 
-    input opcode_t opcode,
+    input word_t inst,
     input logic done,
 
-    output ctrl_t ctrl,
+    output ctrl_t control,
     output logic rf_wren,
     output logic mem_rden,
-    output logic mem_wren
+    output logic mem_wren,
+    output logic trap
 );
-    logic[1:0] cycle;
-    opcode_t current_opcode;
+    logic[1:0] cycle /*verilator public*/;
+    opcode_t current_opcode, saved_opcode;
     logic start;
 
     logic[1:0] max_cycle;
+    wire[2:0] f3 = ext_f3(inst);
     always_comb begin
-        case (opcode)
+        case (current_opcode)
             OP_OP:     max_cycle = 2;
             OP_IMM:    max_cycle = 1;
             OP_LOAD:   max_cycle = 2;
@@ -28,6 +30,8 @@ module control (
             OP_JALR:   max_cycle = 2;
             OP_AUIPC:  max_cycle = 1;
             OP_LUI:    max_cycle = 1;
+            OP_FENCE:  max_cycle = 1;
+            OP_SYS:    max_cycle = 1;
             default:   max_cycle = 0; // should not happen
         endcase
     end
@@ -35,7 +39,6 @@ module control (
     always_ff @(posedge clk) begin
         if (rst) begin
             cycle <= `CYCLE_INIT;
-            current_opcode <= opcode_t'(`OP_INIT);
             start <= 1;
         end else begin
             if (done) begin
@@ -45,82 +48,87 @@ module control (
                 start <= 0;
             end
             if (cycle == 0)
-                current_opcode <= opcode;
+                saved_opcode <= ext_opcode(inst);
         end
     end
+    assign current_opcode = (cycle == 0) ? ext_opcode(inst) : saved_opcode;
+    assign trap = current_opcode == OP_SYS && cycle == 0;
 
     always_comb begin
-        ctrl.opcode = current_opcode;
-        ctrl.start = start;
+        control.opcode = current_opcode;
+        control.start = start;
 
     // update PC
         case (current_opcode)
-            OP_OP, OP_JALR: ctrl.update_pc = cycle == 1;
-            default: ctrl.update_pc = cycle == 0;
+            OP_OP, OP_JALR: control.update_pc = cycle == 1;
+            OP_BRANCH: control.update_pc = (cycle == 0 || cycle == 2);
+            default: control.update_pc = cycle == 0;
         endcase
 
     // update instruction
         case (current_opcode)
-            OP_LOAD, OP_STORE: ctrl.update_instr = cycle == 1;
-            default: ctrl.update_instr = cycle == max_cycle;
+            OP_LOAD, OP_STORE: control.update_instr = cycle == 1;
+            default: control.update_instr = cycle == max_cycle;
         endcase
 
     // read RF rs1, rs2
-        ctrl.rf_rs1 = cycle == 0;
-        ctrl.rf_rs2 = 0;
+        control.rf_rs1 = cycle == 0;
+        control.rf_rs2 = 0;
         case (current_opcode)
-            OP_OP, OP_STORE: ctrl.rf_rs2 = cycle == 1;
+            OP_OP, OP_STORE: control.rf_rs2 = cycle == 1;
             OP_BRANCH: begin
-                ctrl.rf_rs1 = cycle == 1;
-                ctrl.rf_rs2 = cycle == 0;
+                control.rf_rs1 = cycle == 1;
+                control.rf_rs2 = cycle == 0;
             end
-            OP_JAL, OP_LUI, OP_AUIPC: ctrl.rf_rs1 = 0;
+            OP_JAL, OP_LUI, OP_AUIPC, OP_SYS, OP_FENCE: control.rf_rs1 = 0;
         endcase
 
-        ctrl.save_rd = cycle == 0;
-        ctrl.save_op = (current_opcode == OP_BRANCH && cycle == 1);
+        control.save_rd = cycle == 0;
+        control.save_f3 = (current_opcode == OP_BRANCH && cycle == 1);
+        control.save_store_target = (current_opcode == OP_STORE && cycle == 1);
 
         case (current_opcode)
-            OP_BRANCH, OP_JAL, OP_AUIPC: ctrl.save_pc = cycle == 0;
-            default: ctrl.save_pc = 0;
+            OP_BRANCH, OP_JAL, OP_AUIPC: control.save_pc = cycle == 0;
+            default: control.save_pc = 0;
         endcase
 
-        ctrl.save_pc_next = (current_opcode == OP_JALR && cycle == 0);
-        ctrl.save_br_target = (current_opcode == OP_BRANCH && cycle == 1);
+        control.save_pc_next = (current_opcode == OP_JALR && cycle == 0);
+        control.save_br_target = (current_opcode == OP_BRANCH && cycle == 1);
 
         case (current_opcode)
-            OP_LOAD: ctrl.memop = cycle == 1;
-            OP_STORE: ctrl.memop = cycle == 2;
-            default: ctrl.memop = 0;
+            OP_LOAD: control.memop = cycle == 1;
+            OP_STORE: control.memop = cycle == 2;
+            default: control.memop = 0;
         endcase
 
         case (cycle)
             0: case (current_opcode)
-                OP_OP: ctrl.alu_ctrl = ALUC_NONE;
-                OP_JAL: ctrl.alu_ctrl = ALUC_PC_IMM;
-                default: ctrl.alu_ctrl = ALUC_PC_4;
+                OP_OP: control.alu_ctrl = ALUC_NONE;
+                OP_JAL: control.alu_ctrl = ALUC_PC_IMM;
+                default: control.alu_ctrl = ALUC_PC_4;
             endcase
             1: case (current_opcode)
-                OP_OP: ctrl.alu_ctrl = ALUC_PC_4;
-                OP_IMM: ctrl.alu_ctrl = ALUC_OPEXE;
-                OP_JAL: ctrl.alu_ctrl = ALUC_RS1_4;
-                OP_LUI: ctrl.alu_ctrl = ALUC_NONE;
-                default: ctrl.alu_ctrl = ALUC_RS1_IMM;
+                OP_OP: control.alu_ctrl = ALUC_PC_4;
+                OP_IMM: control.alu_ctrl = ALUC_OPEXE;
+                OP_JAL: control.alu_ctrl = ALUC_RS1_4;
+                OP_LUI, OP_FENCE, OP_SYS: control.alu_ctrl = ALUC_NONE;
+                default: control.alu_ctrl = ALUC_RS1_IMM;
             endcase
             2: case (current_opcode)
-                OP_OP: ctrl.alu_ctrl = ALUC_OPEXE;
-                OP_BRANCH: ctrl.alu_ctrl = ALUC_BRANCH_OP;
-                default: ctrl.alu_ctrl = ALUC_NONE;
+                OP_OP: control.alu_ctrl = ALUC_OPEXE;
+                OP_BRANCH: control.alu_ctrl = ALUC_BRANCH_OP;
+                default: control.alu_ctrl = ALUC_NONE;
             endcase
-            3: ctrl.alu_ctrl = ALUC_NONE;
+            3: control.alu_ctrl = ALUC_NONE;
         endcase
     end
 
     // RF write enable
     always_comb begin
         case (current_opcode)
-            OP_STORE, OP_BRANCH: rf_wren = 0;
+            OP_STORE, OP_BRANCH, OP_FENCE: rf_wren = 0;
             OP_LUI: rf_wren = cycle == 0;
+            OP_SYS: rf_wren = (cycle == 1) && f3 > 0;
             default: rf_wren = cycle == max_cycle;
         endcase
     end
@@ -128,11 +136,10 @@ module control (
     always_comb begin
         case (current_opcode)
             OP_BRANCH: mem_rden = cycle == 2;
-            OP_LOAD: mem_rden = ctrl.update_pc || ctrl.memop;
-            default: mem_rden = ctrl.update_pc;
+            OP_LOAD: mem_rden = control.update_pc || control.memop;
+            default: mem_rden = control.update_pc;
         endcase
     end
     assign mem_wren = current_opcode == OP_STORE && cycle == 2;
-
 
 endmodule
