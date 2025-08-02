@@ -11,13 +11,14 @@ module control (
     output logic rf_wren,
     output logic mem_rden,
     output logic mem_wren,
+
+    output logic[1:0] cycle,
+    output logic[1:0] max_cycle,
     output logic trap
 );
-    logic[1:0] cycle /*verilator public*/;
     opcode_t current_opcode, saved_opcode;
     logic start;
 
-    logic[1:0] max_cycle;
     wire[2:0] f3 = ext_f3(inst);
     always_comb begin
         case (current_opcode)
@@ -68,7 +69,7 @@ module control (
     // update instruction
         case (current_opcode)
             OP_LOAD, OP_STORE: control.update_instr = cycle == 1;
-            default: control.update_instr = cycle == max_cycle;
+            default: control.update_instr = (cycle == max_cycle) && done;
         endcase
 
     // read RF rs1, rs2
@@ -94,6 +95,7 @@ module control (
 
         control.save_pc_next = (current_opcode == OP_JALR && cycle == 0);
         control.save_br_target = (current_opcode == OP_BRANCH && cycle == 1);
+        control.update_cntr_data = (current_opcode == OP_SYS && cycle == 0);
 
         case (current_opcode)
             OP_LOAD: control.memop = cycle == 1;

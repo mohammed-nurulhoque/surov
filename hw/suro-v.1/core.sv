@@ -1,4 +1,4 @@
-module core (
+module surov (
     input logic clk,
     input logic rst,
 
@@ -15,12 +15,15 @@ module core (
     logic done;
     word_t inst;
 
+    logic[1:0] cycle /*verilator public*/;
+    logic[1:0] max_cycle;
+
     regnum_t  regnum;
     word_t rfread_data;
     word_t rfwrite_data;
     logic rf_wren;
 
-    cntr_t cntr;
+    cntr_t cntr_addr;
     word_t cntr_data;
 
     word_t mem_latch;
@@ -46,7 +49,7 @@ module core (
         .regnum(regnum),
         .rfread_data(rfread_data),
         .rfwrite_data(rfwrite_data),
-        .cntr(cntr),
+        .cntr_addr(cntr_addr),
         .cntr_data(cntr_data),
         .mem_addr(mem_addr),
         .mem_size(mem_size),
@@ -63,6 +66,18 @@ module core (
         .rf_wren(rf_wren),
         .mem_rden(mem_rden),
         .mem_wren(mem_wren),
+        .cycle(cycle),
+        .max_cycle(max_cycle),
         .trap(trap)
+    );
+
+    cntrs cn (
+        .clk(clk),
+        .rst(rst),
+        .cycle(cycle),
+        .max_cycle(max_cycle),
+        .start(ctrl.start),
+        .addr(cntr_addr),
+        .data(cntr_data)
     );
 endmodule

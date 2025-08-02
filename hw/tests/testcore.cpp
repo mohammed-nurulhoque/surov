@@ -132,7 +132,7 @@ int main(int argc, char *argv[]) {
     dut.trace(m_trace, 2);
     m_trace->open("waveform.vcd");
 
-    dmem.flash(argv[1], 0x2004);
+    dmem.flash(argv[1], 0x3000);
 
     m_trace->dump(sim_time++);
     dut.rst = 1;
@@ -188,7 +188,7 @@ int main(int argc, char *argv[]) {
 
 END_SIM:
     m_trace->close();
-    fprintf(stderr, "SUCCESS. Completed %d instructions, %d cycles\n", instr_count, sim_time/2-1);
+    fprintf(stderr, "%d SUCCESS. Completed %d instructions, %d cycles\n", dut.rfcore->regfile[rvreg::a0], instr_count, sim_time/2-1);
     // dmem.dump();
     exit(EXIT_SUCCESS);
 }

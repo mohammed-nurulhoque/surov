@@ -1,4 +1,6 @@
-typedef logic[31:0] word_t;
+
+`define XLEN 32
+typedef logic[`XLEN-1:0] word_t;
 typedef logic[4:0]  sham_t;
 
 typedef enum logic[1:0] { D1, D2, EX, BR } cycle_t;
@@ -52,16 +54,15 @@ typedef enum bit[2:0] {
     SYS_CSRRC
 } sys_f3_t;
 
-typedef enum bit[2:0] {
-    ADDER_ADD = 3'b010,
-    ADDER_SUB = 3'b011,
-
-    ADDER_EQ  = 3'b000,
-    ADDER_NE  = 3'b001,
-    ADDER_LT  = 3'b100,
-    ADDER_GE  = 3'b101,
-    ADDER_LTU = 3'b110,
-    ADDER_GEU = 3'b111
+typedef enum bit[7:0] {
+    ADDER_ADD = 8'b00000001,
+    ADDER_SUB = 8'b00000010,
+    ADDER_EQ  = 8'b00000100,
+    ADDER_NE  = 8'b00001000,
+    ADDER_LT  = 8'b00010000,
+    ADDER_GE  = 8'b00100000,
+    ADDER_LTU = 8'b01000000,
+    ADDER_GEU = 8'b10000000
 } adderOp_t;
 
 function logic[4:0] ext_rd (input word_t inst);

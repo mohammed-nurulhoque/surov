@@ -9,11 +9,11 @@
 #include <verilated.h>
 #include <verilated_vcd_c.h>
 
-#include "Vcore.h"
-#include "Vcore_core.h"
-#include "Vcore_datapath.h"
-#include "Vcore_control.h"
-#include "Vcore_rf.h"
+#include "Vsurov.h"
+#include "Vsurov_surov.h"
+#include "Vsurov_datapath.h"
+#include "Vsurov_cntrs.h"
+#include "Vsurov_rf.h"
 
 enum mem_addr_t {
     MEM_B =  0b000,
@@ -82,8 +82,11 @@ class Memory {
 
     unsigned load(unsigned addr, mem_addr_t addr_type) {
         unsigned addr_size = 1 << (addr_type & 0b11);
-        if (addr < start || (addr + addr_size > start + mem.size()))
-            throw std::out_of_range("Address " + std::to_string(addr) + " is out of range");
+        if (addr < start || (addr + addr_size > start + mem.size())) {
+            std::ostringstream oss;
+            oss << "Address 0x" << std::hex << addr << " is out of range";
+            throw std::out_of_range(oss.str());
+        }
         word_bytes out {};
         for (unsigned i = 0; i < addr_size; i++) {
             out.bytes[i] = mem[addr-start+i];
@@ -101,8 +104,11 @@ class Memory {
 
     void store(unsigned addr, unsigned val, mem_addr_t addr_type) {
         unsigned addr_size = 1 << (addr_type & 0b11);
-        if (addr + addr_size > start + mem.size())
-            throw std::out_of_range("Address " + std::to_string(addr) + " is out of range");
+        if (addr + addr_size > start + mem.size()){
+            std::ostringstream oss;
+            oss << "Address 0x" << std::hex << addr << " is out of range";
+            throw std::out_of_range(oss.str());
+        }
         word_bytes val_bytes { .word = val };
         for (unsigned i = 0; i < (1 << addr_type); i++) {
             mem[addr-start+i] = val_bytes.bytes[i];
@@ -114,7 +120,7 @@ class Memory {
 int main(int argc, char *argv[]) {
     if (argc < 2)
         assert("expert 1 argument" && false);
-    Vcore dut;
+    Vsurov dut;
     size_t mem_start = 0;
     if (argc >= 3) {
         assert(sscanf(argv[2], "0x%lx", &mem_start) == 1);
@@ -132,12 +138,10 @@ int main(int argc, char *argv[]) {
     dut.trace(m_trace, 2);
     m_trace->open("waveform.vcd");
 
-    dmem.flash(argv[1], 0x2004);
+    dmem.flash(argv[1], 0x3000);
 
     m_trace->dump(sim_time++);
     dut.rst = 1;
-    printf("passing %x as start_addr\n", start_addr);
-    printf("first instr: %x\n", dmem.load(start_addr, MEM_W));
     dut.memread_data = start_addr;
     dut.clk = 0;
     dut.eval();
@@ -156,7 +160,7 @@ int main(int argc, char *argv[]) {
     dut.eval();
     m_trace->dump(sim_time++);
     for (int i=0;; i++) {
-        if (dut.core->cp->cycle == 0) {instr_count++;}
+        if (dut.surov->cycle == 0) {instr_count++;}
 
         auto ext_inst = [&](auto r) {
             return (r[3U] << 0x1bU) | (r[2U] >> 5U);
@@ -165,7 +169,7 @@ int main(int argc, char *argv[]) {
             return (r[4U] << 0x1bU) | (r[3U] >> 5U);
         };
 
-        auto r = dut.core->dp->r;
+        auto r = dut.surov->dp->r;
         unsigned pc = ext_pc(r);
         unsigned inst = ext_inst(r);
         
@@ -191,19 +195,30 @@ int main(int argc, char *argv[]) {
         }
 
         if (dut.trap) {
-            auto& rf = dut.core->r->regfile;
-            if (inst == 0x73) {// ecall
+            auto& rf = dut.surov->r->regfile;
+            if (inst == 0x73) {// ecall/ebreak
+                fprintf(stderr, "Trap at pc: %08x, cycle: %u\n", pc, dut.surov->cn->counters[0]);
                 switch (rf[rvreg::a7]) {
-                    case Syscall::EXIT:
+                    case Syscall::EXIT: {
+                        unsigned exit_code = rf[rvreg::a0];
+                        fprintf(stderr, "Completed %d instructions, %d cycles\n", instr_count, sim_time/2-1);
+                        fprintf(stderr, "EXIT STATUS: %d\n", exit_code);
                         goto END_SIM;
+                    }
                     case Syscall::WRITE: {
                         unsigned address = rf[rvreg::a1];
                         unsigned nbytes = rf[rvreg::a2];
+                        fprintf(stderr, "Trap _write(%d, %08x, %d)\n", rf[rvreg::a0], address, nbytes);
                         dmem.print_str(address, nbytes);
+                        break;
+                    }
+                    default: {
+                        fprintf(stderr, "Unhandled trap #%d\n", rf[rvreg::a7]);
+                        goto END_SIM;
                     }
                 }
             } else if ((inst & 0xC0002073) == 0xC0002073) { // rdcycle
-                rf[(inst >> 7) & 31] = sim_time/2;
+                printf("rdcycle @cycle: %d\n", sim_time/2);
             }
         }
         dut.clk = 0;
@@ -217,7 +232,6 @@ int main(int argc, char *argv[]) {
 
 END_SIM:
     m_trace->close();
-    fprintf(stderr, "SUCCESS. Completed %d instructions, %d cycles\n", instr_count, sim_time/2-1);
     // dmem.dump();
     exit(EXIT_SUCCESS);
 }

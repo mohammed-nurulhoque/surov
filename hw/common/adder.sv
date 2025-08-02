@@ -1,4 +1,4 @@
-module adder #(parameter int WIDTH = 32)
+module adder #(localparam int WIDTH = 32)
 (
     input adderOp_t op,
     input logic signed[WIDTH-1:0] src_a,

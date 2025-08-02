@@ -1,14 +1,15 @@
 `define REG_COUNT 32
+typedef logic[31:0] pc_t;
 typedef logic[$clog2(`REG_COUNT)-1:0]  regnum_t;
-
-typedef enum {
-    ALUC_PC_4 = 0,
-    ALUC_PC_IMM,
-    ALUC_RS1_4,
-    ALUC_RS1_IMM,
-    ALUC_OPEXE,
-    ALUC_BRANCH_OP,
-    ALUC_NONE
+typedef logic[1:0] cntr_t;
+typedef enum bit[6:0] {
+    ALUC_PC_4      = 7'b0000001,
+    ALUC_PC_IMM    = 7'b0000010,
+    ALUC_RS1_4     = 7'b0000100,
+    ALUC_RS1_IMM   = 7'b0001000,
+    ALUC_OPEXE     = 7'b0010000,
+    ALUC_BRANCH_OP = 7'b0100000,
+    ALUC_NONE      = 7'b1000000
 } alu_ctrl_t;
 
 typedef struct packed {
@@ -30,7 +31,7 @@ typedef struct packed {
 } ctrl_t;
 
 typedef struct packed {
-    word_t pc;            // Program counter
+    pc_t pc;            // Program counter
     union packed {
         word_t inst;          // Current instruction
         word_t branch_target; // Branch target address
@@ -52,8 +53,5 @@ typedef struct packed {
     } _4;
 } dp_regs_t;
 
-typedef enum {
-    CNTR_CYCLE
-} cntr_t;
-`define INST_INIT 32'h6f
+`define INST_INIT `XLEN'h6f
 `define CYCLE_INIT 0

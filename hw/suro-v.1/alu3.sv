@@ -76,7 +76,7 @@ module alu3 #(
             endcase
         end
     end
-    adder #(WIDTH) A (
+    adder A (
         .op(adder_op),
         .src_a(shifter_to_adder),
         .src_b(adder_src_b),

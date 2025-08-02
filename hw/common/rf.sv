@@ -23,7 +23,7 @@ module rf #(
     end
 
     // Synchronous write
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
         if (we)
             regfile[addr] <= wdata;
     end

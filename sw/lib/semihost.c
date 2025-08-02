@@ -5,10 +5,10 @@
 #pragma clang diagnostic ignored "-Wint-conversion"
 #pragma GCC diagnostic ignored "-Wint-conversion"
 
-extern void *syscall0(int syscall);
-extern void *syscall1(int syscall, void *);
-extern void *syscall2(int syscall, void *, void *);
-extern void *syscall3(int syscall, void *, void *, void *);
+extern int *syscall0(int syscall);
+extern int *syscall1(int syscall, void *);
+extern int *syscall2(int syscall, void *, void *);
+extern int *syscall3(int syscall, void *, void *, void *);
 
 // ssize_t puts(int fd, const void *buf, size_t count) {
 //     return (ssize_t)syscall3(PUTS, fd, buf, count);
@@ -44,5 +44,6 @@ int _close(int fd) {
 
 [[noreturn]] void _exit(int status) {
     syscall1(SYS_exit, status);
+    __builtin_unreachable();
 }
 

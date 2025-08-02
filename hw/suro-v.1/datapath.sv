@@ -11,7 +11,7 @@ module datapath (
     input  word_t rfread_data,
     output word_t rfwrite_data,
 
-    output cntr_t cntr,
+    output cntr_t cntr_addr,
     input word_t cntr_data,
 
     output word_t  mem_addr,
@@ -24,16 +24,16 @@ module datapath (
     always_ff @(posedge clk) begin
         // reset
         if (rst) begin
-            r.pc       <= memread_data;
+            r.pc       <= memread_data[31:0];
             r._1.inst  <= `INST_INIT;
         end else begin
             if (ctrl.update_pc) begin
                 if (ctrl.alu_ctrl == ALUC_BRANCH_OP) begin
                     if (alu_out != 0)
-                        r.pc <= r._1.branch_target; // branch target
+                        r.pc <= r._1.branch_target[31:0]; // branch target
                 end
                 else 
-                    r.pc <= alu_out;
+                    r.pc <= alu_out[31:0];
             end
             
             if (ctrl.save_br_target)
@@ -49,7 +49,7 @@ module datapath (
         else if (ctrl.save_store_target)
             r._2.store_address <= alu_out;
         else if (ctrl.save_pc)
-            r._2.saved_pc <= r.pc;
+            r._2.saved_pc <= {r.pc};
 
 
         if (ctrl.rf_rs2)
@@ -117,11 +117,11 @@ module datapath (
         alu_branch = 0; // default branch
         case (ctrl.alu_ctrl)
             ALUC_PC_4: begin
-                alu_src_a = r.pc;
+                alu_src_a = {r.pc};
                 alu_src_b = 4; // PC + 4
             end
             ALUC_PC_IMM: begin
-                alu_src_a = r.pc;
+                alu_src_a = {r.pc};
                 alu_src_b = imm;
             end
             ALUC_RS1_4: begin
@@ -131,9 +131,9 @@ module datapath (
                 alu_src_b = imm;
             end
             ALUC_OPEXE: begin
-                alu_src_b = (ctrl.opcode == OP_OP) ? r._3.r2 : imm;
+                alu_src_b = (ctrl.opcode == OP_OP || !ctrl.start) ? r._3.r2 : imm;
                 alu_f3 = ext_f3(r._1.inst);
-                alu_arith_bit = (ctrl.opcode == OP_OP) ? ext_arith_bit(r._1.inst) : 0;
+                alu_arith_bit = ext_arith_bit(r._1.inst) && (ctrl.opcode == OP_OP || ext_f3(r._1.inst) == FUNC_SR);
                 alu_shadd = isShadd(r._1.inst);
             end
             ALUC_BRANCH_OP: begin
@@ -146,6 +146,8 @@ module datapath (
             end
         endcase
     end
+
+    assign cntr_addr = 2'(ext_i_imm(r._1.inst));
 
     // Register file
     always_comb begin
@@ -176,7 +178,7 @@ module datapath (
             end
             ctrl.alu_ctrl == ALUC_BRANCH_OP: begin
                 mem_size = MEM_W; 
-                mem_addr = (alu_out == 0) ? r.pc : r._1.branch_target; // branch target
+                mem_addr = (alu_out == 0) ? {r.pc} : r._1.branch_target; // branch target
             end
             default: begin
                 mem_size = MEM_W;
