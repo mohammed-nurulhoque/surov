@@ -22,6 +22,7 @@ read_sdc $SDC_FILE
 report_checks -path_delay min_max -fields {slew capacitance input_pin slew fanout} -digits 3
 report_tns
 report_wns
+report_power
 EOF
 
 sta -exit "$STA_SCRIPT"

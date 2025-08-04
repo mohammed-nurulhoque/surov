@@ -1,17 +1,18 @@
-run-alu: obj_dir/Valu
-	obj_dir/Valu
+REG_COUNT ?= 32
+export REG_COUNT
 
-obj_dir/Valu: tests/alu.cpp obj_dir/Valu.h
-	make -C obj_dir/ -f Valu.mk
+comp:
+	+make -C suro-v.1
+	cp suro-v.1/obj_dir/Vsurov .
 
-obj_dir/Valu.h: common/alu.sv common/defs.sv
-	verilator common/alu.sv -Icommon --cc --binary tests/alu.cpp -Wno-CASEINCOMPLETE
+synth:
+	+make -C suro-v.1 synth
+	cp suro-v.1/suro.v .
+	./synth.sh | grep 'Chip area' -C25
+	./sta.sh 
 
-single-cycle: obj_dir/Vsingle_cycle
-	obj_dir/Vsingle_cycle
+clean:
+	+make -C suro-v.1 clean
+	rm -f suro.v synth.v synth.json Vsurov
 
-obj_dir/Vsingle_cycle: tests/1c.cpp obj_dir/Vsingle_cycle.h
-	make -C obj_dir -f Vsingle_cycle.mk
-
-obj_dir/Vsingle_cycle.h: single_cycle.sv common/defs.sv common/alu.sv
-	verilator --cc single_cycle.sv -Icommon -Wno-CASEINCOMPLETE -exe tests/1c.cpp --trace
+.PHONY: comp synth clean

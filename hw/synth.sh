@@ -13,7 +13,6 @@ cat > "$YS_SCRIPT" <<EOF
 # auto-generated yosys script
 read_verilog $VERILOG_FILE
 hierarchy -top $TOP_MODULE
-
 flatten
 synth
 
@@ -27,7 +26,7 @@ write_json $OUTPUT.json
 stat -liberty $LIB_FILE
 EOF
 
-echo "[INFO] Running synthesis for $VERILOG_FILE with top module $TOP_MODULE"
+echo "[INFO] Running synthesis for $VERILOG_FILE with top module $TOP_MODULE" >&2
 yosys "$YS_SCRIPT"
 
 rm "$YS_SCRIPT"

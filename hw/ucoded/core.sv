@@ -160,7 +160,14 @@ module core
                         FUNC_SLTU:   adder_op = ADDER_LTU;
                     endcase
                 end
-                OP_BRANCH: adder_op = branch_t'(ext_f3(inst));
+                OP_BRANCH: case (ext_f3(inst)) 
+                    BR_EQ: adder_op = ADDER_EQ;
+                    BR_NE: adder_op = ADDER_NE;
+                    BR_LT: adder_op = ADDER_LT;
+                    BR_LTU:adder_op = ADDER_LTU;
+                    BR_GE: adder_op = ADDER_GE;
+                    BR_GEU:adder_op = ADDER_GEU;
+                endcase
             endcase
         end
     end
@@ -214,7 +221,7 @@ module core
     end
 
     logic adder_cout;
-    adder #(.WIDTH(WDATA)) a(adder_op, adder_a, adder_b, adder_out, adder_cout);
+    adder a(adder_op, adder_a, adder_b, adder_out, adder_cout);
 
     wire sig_sr = opFunc_t'(ext_f3(inst)) == FUNC_SR;
     wire sig_sa = ext_arith_bit(inst);

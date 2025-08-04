@@ -42,6 +42,7 @@ rs1    = lambda i: exbits(i, 15, 20)
 rs2    = lambda i: exbits(i, 20, 25)
 rd     = lambda i: exbits(i, 7, 12)
 f3     = lambda i: exbits(i, 12, 15)
+f7     = lambda i: exbits(i, 25, 32)
 arith  = lambda i: exbits(i, 30, 31)
 i_imm  = lambda i: sign_extend(exbits(i, 20, 32), 12)
 s_imm  = lambda i: sign_extend(exbits(i, 7, 12) | (exbits(i,25,32) << 5), 12)
@@ -100,24 +101,66 @@ def shamt(i):
 
 def bitsreq(l: list):
     return max(map(lambda x: x.bit_length()//12 + 1, l))
-shifts = {i: 0 for i in range(32)}
-adderx = {i: 0 for i in range(1,4)}
-zbas = {i: 0 for i in range(1,4)}
+
+def op_cycles(inst):
+    if f7(instr) == f7shadd:
+        return 3
+    else:
+        match OPOPF3(f3(instr)):
+            case OPOPF3.sll: return 3 + 
+inst_cycles ={
+    OPC.opop:  lambda instr: 3,
+    OPC.opimm: lambda _: 2,
+    OPC.load:  lambda _: 3,
+    OPC.store: lambda _: 3,
+    OPC.br:    lambda _: 4,
+    OPC.jal:   lambda _: 2,
+    OPC.jalr:  lambda _: 2,
+    OPC.lui:   lambda _: 2,
+    OPC.auipc: lambda _: 2,
+    OPC.sys:   lambda _: 2,
+    OPC.fence: lambda _: 2
+
+}
+
+class Cntrs:
+    def __init__(self):
+        self.cycle = 0
+        self.time = 0
+        self.retired = 0
+        self.jalr = 0
+        self.jalr0 = 0
+    
+    def update(self, instr: int) -> None:
+        op = OPC(opcode(instr))
+        cycles = inst_cycles[op](instr)
+        self.time += cycles
+        self.cycle += cycles
+        self.retired += 1
+        if op == OPC.jalr:
+            self.jalr += 1
+            if i_imm(instr) == 0:
+                self.jalr0 += 1
+
+    def print_stats(self, ):
+        sys.stderr.write(f'cycles: {self.cycle}')
+        sys.stderr.write(f'time: {self.time}')
+        sys.stderr.write(f'insr retired: {self.retired}')
+        sys.stderr.write(f'jalr: {self.jalr}')
+        sys.stderr.write(f'jalr imm=0: {self.jalr0}')
 
 class CPU:
     def __init__(self, img: bytes, base: int, pc_init: int) -> None:
         self.pc = pc_init
         self.rf = {r: 0 for r in REG}
         self.mem = Mem(img, base)
-        self.cycle = 0
-        self.retired = 0
+        self.cntrs = Cntrs()
+
 
     def clock(self):
         instr = self.mem.lw(self.pc)
-        #sys.stderr.write(f'pc: {self.pc:08x} | instr: {instr:08x} | opcode: {OPC(opcode(instr))} | cycle: {self.cycle}\n')
         rdval = None
         next_pc = self.pc + 4
-        self.cycle += 1
         match OPC(opcode(instr)):
             case OPC.lui:
                 rdval = u_imm(instr)
@@ -136,15 +179,10 @@ class CPU:
                         rdval = rs1val & ui(imm)
                     case OPIMMF3.slli:
                         imm = imm & 31
-                        shifts[imm] += 1
                         rdval = rs1val << imm
                         inext = self.mem.lw(next_pc)
-                        if OPC(opcode(inext)) == OPC.opop and OPOPF3(f3(inext)) == OPOPF3.addsub and\
-                           rs1(inext) == rd(instr) and imm in {1, 2, 3}:
-                            zbas[imm] += 1
                     case OPIMMF3.sri:
                         imm = imm & 31
-                        shifts[imm] += 1
                         if arith(instr):
                             rdval = si(rs1val) >> imm
                         else:
@@ -152,52 +190,46 @@ class CPU:
                     # arithmetic r-i
                     case OPIMMF3.addi:
                         rdval = rs1val + imm
-                        adderx[bitsreq([rdval, rs1val, imm])] += 1
                     case OPIMMF3.slti:
                         rdval = int(si(rs1val) < si(imm))
-                        adderx[bitsreq([rdval, rs1val, imm])] += 1
                     case OPIMMF3.sltiu:
                         rdval = int(ui(rs1val) < ui(imm))
-                        adderx[bitsreq([rdval, rs1val, imm])] += 1
             case OPC.opop:
                 rs1val = self.rf[REG(rs1(instr))]
                 rs2val = self.rf[REG(rs2(instr))]
-                # arithmetic r-r
-                match OPOPF3(f3(instr)):
-                    case OPOPF3.addsub:
-                        if arith(instr):
-                            rdval = rs1val - rs2val
-                        else:
-                            rdval = rs1val + rs2val
-                        adderx[bitsreq([rdval, rs1val, rs2val])] += 1
-                    case OPOPF3.slt:
-                        rdval = int(si(rs1val) < si(rs2val))
-                        adderx[bitsreq([rdval, rs1val, rs2val])] += 1
-                    case OPOPF3.sltu:
-                        rdval = int(ui(rs1val) < ui(rs2val))
-                        adderx[bitsreq([rdval, rs1val, rs2val])] += 1
-                    
-                    # logical r-r
-                    case OPOPF3.sll:
-                        shifts[shamt(rs2val)] += 1
-                        rdval = rs1val << shamt(rs2val)
-                    case OPOPF3.sr:
-                        shifts[shamt(rs2val)] += 1
-                        if arith(instr):
-                            rdval = si(rs1val) >> shamt(rs2val)
-                        else:
-                            rdval = rs1val >> shamt(rs2val)
-                    case OPOPF3.xor:
-                        rdval = rs1val ^ rs2val
-                    case OPOPF3.orr:
-                        rdval = rs1val | rs2val
-                    case OPOPF3.aand:
-                        rdval = rs1val & rs2val
+                if f7(instr) == f7shadd:
+                    rdval = (rs1val << (f3(instr) >> 1)) + rs2val
+                else:
+                    # arithmetic r-r
+                    match OPOPF3(f3(instr)):
+                        case OPOPF3.addsub:
+                            if arith(instr):
+                                rdval = rs1val - rs2val
+                            else:
+                                rdval = rs1val + rs2val
+                        case OPOPF3.slt:
+                            rdval = int(si(rs1val) < si(rs2val))
+                        case OPOPF3.sltu:
+                            rdval = int(ui(rs1val) < ui(rs2val))
+
+                        # logical r-r
+                        case OPOPF3.sll:
+                            rdval = rs1val << shamt(rs2val)
+                        case OPOPF3.sr:
+                            if arith(instr):
+                                rdval = si(rs1val) >> shamt(rs2val)
+                            else:
+                                rdval = rs1val >> shamt(rs2val)
+                        case OPOPF3.xor:
+                            rdval = rs1val ^ rs2val
+                        case OPOPF3.orr:
+                            rdval = rs1val | rs2val
+                        case OPOPF3.aand:
+                            rdval = rs1val & rs2val
             # loads
             case OPC.load:
                 imm = i_imm(instr)
                 rs1val = self.rf[REG(rs1(instr))]
-                adderx[bitsreq([ui(rs1val + imm), rs1val, imm])] += 1
                 match LOADF3(f3(instr)):
                     case LOADF3.lb:
                         rdval = sb(self.mem.lb(ui(rs1val + imm)))
@@ -208,15 +240,12 @@ class CPU:
                     case LOADF3.lhu:
                         rdval = self.mem.lh(ui(rs1val + imm))
                     case LOADF3.lw:
-                        if rs1val == 0x8000008:
-                            rdval = self.cycle
                         rdval = self.mem.lw(ui(rs1val + imm))
             # stores
             case OPC.store:
                 imm = s_imm(instr)
                 rs1val = self.rf[REG(rs1(instr))]
                 rs2val = self.rf[REG(rs2(instr))]
-                adderx[bitsreq([ui(rs1val + imm), rs1val, imm])] += 1
                 match STOREF3(f3(instr)):
                     case STOREF3.sb:
                         if rs1val == 0x8000000:
@@ -266,7 +295,7 @@ class CPU:
                 match SYSF3(f3(instr)):
                     case SYSF3.ecallbrk:
                         if imm == 0: # ecall
-                            call = self.rf[REG.a7]
+                            call = self.rf[REG.a5]
                             arg1 = self.rf[REG.a0]
                             arg2 = self.rf[REG.a1]
                             arg3 = self.rf[REG.a2]
@@ -288,28 +317,31 @@ class CPU:
                             sys.stderr.write(f'\n Unrecognized instruction :{instr}\n')
                     case SYSF3.csrrs:
                         imm = exbits(instr, 20, 32)
-                        match CSR(imm):
-                            case CSR.RDCYCLE:
-                                rdval = self.cycle
-                            case CSR.RDTIME:
-                                rdval = self.cycle
-                            case CSR.RDINSTRET:
-                                rdval = self.retired
-                            case CSR.RDCYCLEH:
-                                rdval = self.cycle >> 32
-                            case CSR.RDTIMEH:
-                                rdval = self.cycle >> 32
-                            case CSR.RDINSTRETH:
-                                rdval = self.retired >> 32
+                        try:
+                            match CSR(imm & 0xFF):
+                                case CSR.CYCLE:
+                                    rdval = self.cntrs.cycle
+                                case CSR.TIME:
+                                    rdval = self.cntrs.time
+                                case CSR.INSTRET:
+                                    rdval = self.cntrs.retired
+                                case CSR.CYCLEH:
+                                    rdval = self.cntrs.time >> 32
+                                case CSR.TIMEH:
+                                    rdval = self.cntrs.cycle >> 32
+                                case CSR.INSTRETH:
+                                    rdval = self.cntrs.retired >> 32
+                        except ValueError as e:
+                            sys.stderr.write(f'invalid csr @pc: {self.pc:x} instr: {instr:x}')
             case OPC.fence:
                 pass
             case _:
                 sys.stderr.write(f'\n Unrecognized instruction :{instr}\n')
+        self.cntrs.update(instr, rs1val, rs2val)
 
         if rdval is not None and REG(rd(instr)) != REG.x0:
             self.rf[REG(rd(instr))] = ui(rdval)
         self.pc = next_pc
-        self.retired += 1
         return self.pc
 
 if __name__ == "__main__":
@@ -332,7 +364,7 @@ if __name__ == "__main__":
                 memimg += bytes(address - prev_end)
             memimg += f.read(fsize).ljust(memsize, b'\x00')
             prev_end = address + memsize
-    sys.stderr.write(f'base: {base} entry: {entry} image-size:{len(memimg)}\n')
+    sys.stderr.write(f'base: {base:x} entry: {entry:x} image-size:{len(memimg)}\n')
     memimg += bytes(8192) # stack
 
     cpu = CPU(memimg, base, entry)
@@ -345,8 +377,4 @@ if __name__ == "__main__":
         sys.stderr.write('=== Simulation Ended ===\n')
         if t.exit_code is not None:
             sys.stderr.write(f'called exit with code {t.exit_code}\n')
-        sys.stderr.write(f'cycles: {cpu.cycle}\n')
-        sys.stderr.write(f'retired: {cpu.retired}\n')
-        sys.stderr.write(f'shifts: {shifts}\n')
-        sys.stderr.write(f'adds: {adderx}\n')
-        sys.stderr.write(f'zbas {zbas}\n')
+        cpu.cntrs.print_stats()

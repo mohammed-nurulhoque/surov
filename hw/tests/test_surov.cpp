@@ -119,7 +119,7 @@ class Memory {
 
 int main(int argc, char *argv[]) {
     if (argc < 2)
-        assert("expert 1 argument" && false);
+        assert("expect at least 1 argument" && false);
     Vsurov dut;
     size_t mem_start = 0;
     if (argc >= 3) {
@@ -127,7 +127,19 @@ int main(int argc, char *argv[]) {
     }
     size_t start_addr = mem_start;
     if (argc >= 4) {
-	    assert(sscanf(argv[3], "0x%lx", &start_addr) == 1);
+        assert(sscanf(argv[3], "0x%lx", &start_addr) == 1);
+    }
+    const char *tracefile = nullptr;
+    if (argc >= 5) {
+        tracefile = argv[4];
+    }
+    std::ofstream trace_ofs;
+    if (tracefile) {
+        trace_ofs.open(tracefile);
+        if (!trace_ofs.is_open()) {
+            fprintf(stderr, "Failed to open tracefile: %s\n", tracefile);
+            exit(EXIT_FAILURE);
+        }
     }
     Memory dmem(4, mem_start);
     int sim_time = 0;
@@ -160,18 +172,28 @@ int main(int argc, char *argv[]) {
     dut.eval();
     m_trace->dump(sim_time++);
     for (int i=0;; i++) {
-        if (dut.surov->cycle == 0) {instr_count++;}
-
+        int regaddr_width = log2(REG_COUNT);
         auto ext_inst = [&](auto r) {
-            return (r[3U] << 0x1bU) | (r[2U] >> 5U);
+            return (r[3U] << (32-regaddr_width)) | (r[2U] >> regaddr_width);
         };
         auto ext_pc = [&](auto r) {
-            return (r[4U] << 0x1bU) | (r[3U] >> 5U);
+            return (r[4U] << (32-regaddr_width)) | (r[3U] >> regaddr_width);
         };
 
         auto r = dut.surov->dp->r;
         unsigned pc = ext_pc(r);
         unsigned inst = ext_inst(r);
+
+        if (dut.surov->cycle == 0) {
+            instr_count++;
+            // Output <pc> <cycles> to tracefile if enabled
+            if (tracefile) {
+                unsigned cycles = dut.surov->max_cycle + 1;
+                auto r = dut.surov->dp->r;
+                pc = ext_pc(r);
+                trace_ofs << std::hex << pc << " " << std::dec << cycles << std::endl;
+            }
+        }
         
         try {
             // load
@@ -198,7 +220,7 @@ int main(int argc, char *argv[]) {
             auto& rf = dut.surov->r->regfile;
             if (inst == 0x73) {// ecall/ebreak
                 fprintf(stderr, "Trap at pc: %08x, cycle: %u\n", pc, dut.surov->cn->counters[0]);
-                switch (rf[rvreg::a7]) {
+                switch (rf[rvreg::a5]) {
                     case Syscall::EXIT: {
                         unsigned exit_code = rf[rvreg::a0];
                         fprintf(stderr, "Completed %d instructions, %d cycles\n", instr_count, sim_time/2-1);
@@ -213,12 +235,14 @@ int main(int argc, char *argv[]) {
                         break;
                     }
                     default: {
-                        fprintf(stderr, "Unhandled trap #%d\n", rf[rvreg::a7]);
+                        fprintf(stderr, "Unhandled trap #%d\n", rf[rvreg::a5]);
                         goto END_SIM;
                     }
                 }
             } else if ((inst & 0xC0002073) == 0xC0002073) { // rdcycle
-                printf("rdcycle @cycle: %d\n", sim_time/2);
+                fprintf(stderr, "rdcycle @cycle: %d\n", sim_time/2);
+            } else {
+                fprintf(stderr, "Unrecognized OP_SYS #%08x\n", inst);
             }
         }
         dut.clk = 0;
@@ -232,6 +256,7 @@ int main(int argc, char *argv[]) {
 
 END_SIM:
     m_trace->close();
+    if (trace_ofs.is_open()) trace_ofs.close();
     // dmem.dump();
     exit(EXIT_SUCCESS);
 }

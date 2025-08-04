@@ -2,9 +2,9 @@
 TOOLCHAIN_PREFIX = ~/riscv-gcc/bin/riscv64-unknown-elf-
 CC = $(TOOLCHAIN_PREFIX)gcc
 AR = $(TOOLCHAIN_PREFIX)ar
-ARCH=rv32i_zba
-ABI=ilp32
-CFLAGS = -O2 -march=$(ARCH) -mabi=$(ABI)
+ARCH=rv32e_zba
+ABI=ilp32e
+CFLAGS = -O2 -march=$(ARCH) -mabi=$(ABI) -ffixed-x4 -ffixed-x5 -ffixed-x6 -ffixed-x7 -ffixed-x13 -ffixed-x14 -ffixed-x15
 
 # Directories
 OBJDIR = obj

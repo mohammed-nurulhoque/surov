@@ -5,7 +5,7 @@ module datapath (
     input ctrl_t ctrl,
     output logic done,
 
-    output word_t inst,
+    output opcode_t opcode,
 
     output regnum_t  regnum,
     input  word_t rfread_data,
@@ -63,7 +63,7 @@ module datapath (
         
 
         if (ctrl.save_rd)
-            r._4.rd <= ext_rd(r._1.inst);
+            r._4.rd <= regnum_t'(ext_rd(r._1.inst));
         else if (ctrl.save_f3)
             r._4.brf3 <= branch_t'(ext_f3(r._1.inst));
         else if (ctrl.save_store_target)
@@ -151,9 +151,9 @@ module datapath (
 
     // Register file
     always_comb begin
-        regnum = ctrl.rf_rs1? ext_rs1(r._1.inst) :
-                 ctrl.rf_rs2? ext_rs2(r._1.inst) :
-                 (ctrl.opcode == OP_LUI) ? ext_rd(r._1.inst) : r._4.rd;
+        regnum = ctrl.rf_rs1? regnum_t'(ext_rs1(r._1.inst)) :
+                 ctrl.rf_rs2? regnum_t'(ext_rs2(r._1.inst)) :
+                 (ctrl.opcode == OP_LUI) ? regnum_t'(ext_rd(r._1.inst)) : r._4.rd;
         
         case (ctrl.opcode)
             OP_LUI:  rfwrite_data = ext_u_imm(r._1.inst);
@@ -187,6 +187,6 @@ module datapath (
         endcase
     end
 
-    assign inst = r._1.inst;
+    assign opcode = ext_opcode(r._1.inst);
         
 endmodule

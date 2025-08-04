@@ -8,5 +8,5 @@ _start:
     la sp, _end + 1024
     .option pop
     call main
-    li a7, 93
+    li a5, 93
     ecall

@@ -1,7 +1,7 @@
-`define REG_COUNT 32
 typedef logic[31:0] pc_t;
 typedef logic[$clog2(`REG_COUNT)-1:0]  regnum_t;
 typedef logic[1:0] cntr_t;
+
 typedef enum bit[6:0] {
     ALUC_PC_4      = 7'b0000001,
     ALUC_PC_IMM    = 7'b0000010,

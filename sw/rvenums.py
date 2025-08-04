@@ -40,6 +40,8 @@ OPOPF3 = Enum('OPOPF3', [
         ('orr', 0b110),
         ('aand', 0b111)])
 
+f7shadd = 0b0010000
+
 LOADF3 = Enum('LOADF3', [
         ('lb', 0b000),
         ('lh', 0b001),
@@ -66,10 +68,10 @@ SYSF3 = Enum('SYSF3', [
 ])
 
 CSR = Enum('CSR', [
-    ('RDCYCLE',   0xC00),
-    ('RDTIME',    0xC01),
-    ('RDINSTRET', 0xC02),
-    ('RDCYCLEH',  0xC80),
-    ('RDTIMEH',   0xC81),
-    ('RDINSTRETH',0xC82),
+    ('CYCLE',   0x00),
+    ('TIME',    0x01),
+    ('INSTRET', 0x02),
+    ('CYCLEH',  0x80),
+    ('TIMEH',   0x81),
+    ('INSTRETH',0x82)
 ])

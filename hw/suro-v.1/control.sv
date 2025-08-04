@@ -4,7 +4,7 @@ module control (
     input logic clk,
     input logic rst,
 
-    input word_t inst,
+    input opcode_t opcode,
     input logic done,
 
     output ctrl_t control,
@@ -19,7 +19,6 @@ module control (
     opcode_t current_opcode, saved_opcode;
     logic start;
 
-    wire[2:0] f3 = ext_f3(inst);
     always_comb begin
         case (current_opcode)
             OP_OP:     max_cycle = 2;
@@ -49,10 +48,10 @@ module control (
                 start <= 0;
             end
             if (cycle == 0)
-                saved_opcode <= ext_opcode(inst);
+                saved_opcode <= opcode;
         end
     end
-    assign current_opcode = (cycle == 0) ? ext_opcode(inst) : saved_opcode;
+    assign current_opcode = (cycle == 0) ? opcode : saved_opcode;
     assign trap = current_opcode == OP_SYS && cycle == 0;
 
     always_comb begin
@@ -130,7 +129,6 @@ module control (
         case (current_opcode)
             OP_STORE, OP_BRANCH, OP_FENCE: rf_wren = 0;
             OP_LUI: rf_wren = cycle == 0;
-            OP_SYS: rf_wren = (cycle == 1) && f3 > 0;
             default: rf_wren = cycle == max_cycle;
         endcase
     end

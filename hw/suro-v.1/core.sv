@@ -13,10 +13,11 @@ module surov (
 );
     ctrl_t ctrl;
     logic done;
-    word_t inst;
+
+    opcode_t opcode;
 
     logic[1:0] cycle /*verilator public*/;
-    logic[1:0] max_cycle;
+    logic[1:0] max_cycle /*verilator public*/;
 
     regnum_t  regnum;
     word_t rfread_data;
@@ -32,7 +33,7 @@ module surov (
     end
 
 
-    rf #(.WORD_SIZE(32), .REG_COUNT(`REG_COUNT)) r  (
+    rf #(.WORD_SIZE(`XLEN), .REG_COUNT(`REG_COUNT)) r  (
         .clk(clk),
         .we(rf_wren),
         .addr(regnum),
@@ -45,7 +46,7 @@ module surov (
         .rst(rst),
         .ctrl(ctrl),
         .done(done),
-        .inst(inst),
+        .opcode(opcode),
         .regnum(regnum),
         .rfread_data(rfread_data),
         .rfwrite_data(rfwrite_data),
@@ -60,7 +61,7 @@ module surov (
     control cp (
         .clk(clk),
         .rst(rst),
-        .inst(inst),
+        .opcode(opcode),
         .done(done),
         .control(ctrl),
         .rf_wren(rf_wren),
