@@ -10,10 +10,9 @@ module rf #(
 );
 
     // Register array
-    reg [WORD_SIZE-1:0] regfile [0:REG_COUNT-1] /*verilator public*/;
+    logic [WORD_SIZE-1:0] regfile [0:REG_COUNT-1] /*verilator public*/;
 
-
-    wire [REG_COUNT-1:0] addr_1hot;
+    logic [REG_COUNT-1:0] addr_1hot;
     assign addr_1hot = 1'b1 << addr;
     always_comb begin
         rdata = {WORD_SIZE{1'b0}};
@@ -22,10 +21,24 @@ module rf #(
         end
     end
 
-    // Synchronous write
+`ifdef RF_LATCH
+    logic [WORD_SIZE-1:0] master_latch;
+    /* verilator lint_off LATCH */
+    always @(*) begin
+        if (we && ~clk)
+            master_latch = wdata;
+    end
+
+    /* verilator lint_off LATCH */
+    always @(*) begin
+        if (we && clk)
+            regfile[addr] = master_latch;
+    end
+`else
     always_ff @(posedge clk) begin
         if (we)
             regfile[addr] <= wdata;
     end
+`endif
 
 endmodule

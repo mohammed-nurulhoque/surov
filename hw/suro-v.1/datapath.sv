@@ -54,7 +54,7 @@ module datapath (
 
         if (ctrl.rf_rs2)
             r._3.r2 <= rfread_data;
-        else if (ctrl.alu_ctrl == ALUC_OPEXE)
+        else if (ctrl.alu_ctrl == ALUC_OPEXE && (ext_f3(r._1.inst) == FUNC_SLL || ext_f3(r._1.inst) == FUNC_SR))
             r._3.r2 <= word_t'(alu_shamt_out);
         else if (ctrl.save_pc_next)
             r._3.saved_pc_next <= alu_out;
@@ -73,7 +73,7 @@ module datapath (
     // immediate extraction
     word_t imm;
     always_comb begin
-        case (ctrl.opcode)
+        unique case (ctrl.opcode)
             OP_LUI:  imm = ext_u_imm(r._1.inst);
             OP_JALR: imm = ext_i_imm(r._1.inst);
             OP_IMM:  imm = ext_i_imm(r._1.inst);
@@ -90,7 +90,9 @@ module datapath (
     word_t alu_src_b;
     logic[2:0] alu_f3;
     logic alu_arith_bit;
+`ifdef SHADD
     logic alu_shadd;
+`endif
     logic alu_branch;
     word_t alu_out;
     sham_t alu_shamt_out;
@@ -101,7 +103,9 @@ module datapath (
         .src_b(alu_src_b),
         .f3(alu_f3),
         .arith_bit(alu_arith_bit),
+`ifdef SHADD
         .shadd(alu_shadd),
+`endif
         .branch(alu_branch),
         .out(alu_out),
         .shamt_out(alu_shamt_out),
@@ -113,9 +117,11 @@ module datapath (
         alu_src_b = 'X; // default ALU source B
         alu_f3 = FUNC_ADDSUB; // default ALU function
         alu_arith_bit = 0; // default arithmetic bit
+`ifdef SHADD
         alu_shadd = 0; // default shift/add
+`endif
         alu_branch = 0; // default branch
-        case (ctrl.alu_ctrl)
+        unique case (ctrl.alu_ctrl)
             ALUC_PC_4: begin
                 alu_src_a = {r.pc};
                 alu_src_b = 4; // PC + 4
@@ -134,7 +140,9 @@ module datapath (
                 alu_src_b = (ctrl.opcode == OP_OP || !ctrl.start) ? r._3.r2 : imm;
                 alu_f3 = ext_f3(r._1.inst);
                 alu_arith_bit = ext_arith_bit(r._1.inst) && (ctrl.opcode == OP_OP || ext_f3(r._1.inst) == FUNC_SR);
-                alu_shadd = isShadd(r._1.inst);
+`ifdef SHADD
+                alu_shadd = (ctrl.opcode == OP_OP && isShadd(r._1.inst));
+`endif
             end
             ALUC_BRANCH_OP: begin
                 alu_src_b = r._3.r2;
@@ -155,7 +163,7 @@ module datapath (
                  ctrl.rf_rs2? regnum_t'(ext_rs2(r._1.inst)) :
                  (ctrl.opcode == OP_LUI) ? regnum_t'(ext_rd(r._1.inst)) : r._4.rd;
         
-        case (ctrl.opcode)
+        unique case (ctrl.opcode)
             OP_LUI:  rfwrite_data = ext_u_imm(r._1.inst);
             OP_JALR: rfwrite_data = r._3.r2;
             OP_SYS:  rfwrite_data = r._3.cntr_data;
@@ -167,7 +175,7 @@ module datapath (
     // Memory
     always_comb begin
         memwrite_data = r._3.r2;
-        case (1'b1)
+        unique case (1'b1)
             ctrl.opcode == OP_LOAD && ctrl.memop: begin
                 mem_size = mem_addr_t'(ext_f3(r._1.inst));
                 mem_addr = alu_out;
@@ -178,7 +186,7 @@ module datapath (
             end
             ctrl.alu_ctrl == ALUC_BRANCH_OP: begin
                 mem_size = MEM_W; 
-                mem_addr = (alu_out == 0) ? {r.pc} : r._1.branch_target; // branch target
+                mem_addr = (alu_out[0]) ? r._1.branch_target : {r.pc}; // branch target
             end
             default: begin
                 mem_size = MEM_W;
@@ -187,6 +195,6 @@ module datapath (
         endcase
     end
 
-    assign opcode = ext_opcode(r._1.inst);
+    assign opcode = ext_opcode(ctrl.update_instr ? memread_data : r._1.inst);
         
 endmodule

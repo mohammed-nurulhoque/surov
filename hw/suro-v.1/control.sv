@@ -16,11 +16,12 @@ module control (
     output logic[1:0] max_cycle,
     output logic trap
 );
-    opcode_t current_opcode, saved_opcode;
+    iop_t saved_opcode;
+    opcode_t current_opcode;
     logic start;
 
     always_comb begin
-        case (current_opcode)
+        unique case (current_opcode)
             OP_OP:     max_cycle = 2;
             OP_IMM:    max_cycle = 1;
             OP_LOAD:   max_cycle = 2;
@@ -39,6 +40,7 @@ module control (
     always_ff @(posedge clk) begin
         if (rst) begin
             cycle <= `CYCLE_INIT;
+            saved_opcode <= opcode[6:2];
             start <= 1;
         end else begin
             if (done) begin
@@ -47,11 +49,11 @@ module control (
             end else begin
                 start <= 0;
             end
-            if (cycle == 0)
-                saved_opcode <= opcode;
+            if (cycle == max_cycle)
+                saved_opcode <= opcode[6:2];
         end
     end
-    assign current_opcode = (cycle == 0) ? opcode : saved_opcode;
+    assign current_opcode = opcode_t'({saved_opcode, 2'b11});
     assign trap = current_opcode == OP_SYS && cycle == 0;
 
     always_comb begin
@@ -59,14 +61,14 @@ module control (
         control.start = start;
 
     // update PC
-        case (current_opcode)
+        unique case (current_opcode)
             OP_OP, OP_JALR: control.update_pc = cycle == 1;
             OP_BRANCH: control.update_pc = (cycle == 0 || cycle == 2);
             default: control.update_pc = cycle == 0;
         endcase
 
     // update instruction
-        case (current_opcode)
+        unique case (current_opcode)
             OP_LOAD, OP_STORE: control.update_instr = cycle == 1;
             default: control.update_instr = (cycle == max_cycle) && done;
         endcase
@@ -74,7 +76,7 @@ module control (
     // read RF rs1, rs2
         control.rf_rs1 = cycle == 0;
         control.rf_rs2 = 0;
-        case (current_opcode)
+        unique case (current_opcode)
             OP_OP, OP_STORE: control.rf_rs2 = cycle == 1;
             OP_BRANCH: begin
                 control.rf_rs1 = cycle == 1;
@@ -87,7 +89,7 @@ module control (
         control.save_f3 = (current_opcode == OP_BRANCH && cycle == 1);
         control.save_store_target = (current_opcode == OP_STORE && cycle == 1);
 
-        case (current_opcode)
+        unique case (current_opcode)
             OP_BRANCH, OP_JAL, OP_AUIPC: control.save_pc = cycle == 0;
             default: control.save_pc = 0;
         endcase
@@ -96,13 +98,13 @@ module control (
         control.save_br_target = (current_opcode == OP_BRANCH && cycle == 1);
         control.update_cntr_data = (current_opcode == OP_SYS && cycle == 0);
 
-        case (current_opcode)
+        unique case (current_opcode)
             OP_LOAD: control.memop = cycle == 1;
             OP_STORE: control.memop = cycle == 2;
             default: control.memop = 0;
         endcase
 
-        case (cycle)
+        unique case (cycle)
             0: case (current_opcode)
                 OP_OP: control.alu_ctrl = ALUC_NONE;
                 OP_JAL: control.alu_ctrl = ALUC_PC_IMM;
@@ -126,7 +128,7 @@ module control (
 
     // RF write enable
     always_comb begin
-        case (current_opcode)
+        unique case (current_opcode)
             OP_STORE, OP_BRANCH, OP_FENCE: rf_wren = 0;
             OP_LUI: rf_wren = cycle == 0;
             default: rf_wren = cycle == max_cycle;
@@ -134,7 +136,7 @@ module control (
     end
 
     always_comb begin
-        case (current_opcode)
+        unique case (current_opcode)
             OP_BRANCH: mem_rden = cycle == 2;
             OP_LOAD: mem_rden = control.update_pc || control.memop;
             default: mem_rden = control.update_pc;

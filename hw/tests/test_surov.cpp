@@ -144,6 +144,7 @@ int main(int argc, char *argv[]) {
     Memory dmem(4, mem_start);
     int sim_time = 0;
     int instr_count = 0;
+    int result = EXIT_SUCCESS;
 
     Verilated::traceEverOn(true);
     VerilatedVcdC *m_trace = new VerilatedVcdC;
@@ -171,7 +172,7 @@ int main(int argc, char *argv[]) {
     dut.clk = 0;
     dut.eval();
     m_trace->dump(sim_time++);
-    for (int i=0;; i++) {
+    while (1) {
         int regaddr_width = log2(REG_COUNT);
         auto ext_inst = [&](auto r) {
             return (r[3U] << (32-regaddr_width)) | (r[2U] >> regaddr_width);
@@ -212,37 +213,41 @@ int main(int argc, char *argv[]) {
             }
         } catch (std::out_of_range &e) {
             fprintf(stderr, "Caught exception: %s\n", e.what());
-            m_trace->close();
-            exit(EXIT_FAILURE);
+            result = EXIT_FAILURE;
+            goto END_SIM;
         }
 
         if (dut.trap) {
             auto& rf = dut.surov->r->regfile;
-            if (inst == 0x73) {// ecall/ebreak
-                fprintf(stderr, "Trap at pc: %08x, cycle: %u\n", pc, dut.surov->cn->counters[0]);
+            int cycles = dut.surov->cn->counters[0];
+            if (inst == 0x73) {// ecall
                 switch (rf[rvreg::a5]) {
                     case Syscall::EXIT: {
                         unsigned exit_code = rf[rvreg::a0];
-                        fprintf(stderr, "Completed %d instructions, %d cycles\n", instr_count, sim_time/2-1);
+                        fprintf(stderr, "Completed %d instructions, %d cycles\n", instr_count, cycles);
                         fprintf(stderr, "EXIT STATUS: %d\n", exit_code);
+                        result = exit_code;
                         goto END_SIM;
                     }
                     case Syscall::WRITE: {
                         unsigned address = rf[rvreg::a1];
                         unsigned nbytes = rf[rvreg::a2];
-                        fprintf(stderr, "Trap _write(%d, %08x, %d)\n", rf[rvreg::a0], address, nbytes);
+                        fprintf(stderr, "Trap at pc: %08x, cycle: %u _write(%d, %08x, %d)\n", pc, cycles, rf[rvreg::a0], address, nbytes);
                         dmem.print_str(address, nbytes);
                         break;
                     }
                     default: {
-                        fprintf(stderr, "Unhandled trap #%d\n", rf[rvreg::a5]);
+                        fprintf(stderr, "Unhandled trap #%d at pc: %08x, cycle: %u\n", rf[rvreg::a5], pc, cycles);
+                        result = EXIT_FAILURE;
                         goto END_SIM;
                     }
                 }
-            } else if ((inst & 0xC0002073) == 0xC0002073) { // rdcycle
-                fprintf(stderr, "rdcycle @cycle: %d\n", sim_time/2);
+            } else if ((inst & 0x2073) == 0x2073) { // csrr(s)
+            } else if (inst & 0x7f == 0b0001111) { // fence
             } else {
-                fprintf(stderr, "Unrecognized OP_SYS #%08x\n", inst);
+                fprintf(stderr, "Unrecognized OP_SYS #%08x at pc: %08x, cycle: %u\n", inst, pc, cycles);
+                result = EXIT_FAILURE;
+                goto END_SIM;
             }
         }
         dut.clk = 0;
@@ -252,11 +257,16 @@ int main(int argc, char *argv[]) {
         dut.clk = 1;
         dut.eval();
         m_trace->dump(sim_time++);
+
+        if (sim_time > 10000000) {
+            fprintf(stderr, "SIM TIMEOUT\n");
+            result = EXIT_FAILURE;
+        }
     }
 
 END_SIM:
     m_trace->close();
     if (trace_ofs.is_open()) trace_ofs.close();
     // dmem.dump();
-    exit(EXIT_SUCCESS);
+    return result;
 }

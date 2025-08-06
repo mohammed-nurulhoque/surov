@@ -5,14 +5,16 @@ comp:
 	+make -C suro-v.1
 	cp suro-v.1/obj_dir/Vsurov .
 
-synth:
+synth: suro.v
+	./synth.sh | grep 'Chip area' -C25
+	./sta.sh
+
+suro.v:
 	+make -C suro-v.1 synth
 	cp suro-v.1/suro.v .
-	./synth.sh | grep 'Chip area' -C25
-	./sta.sh 
 
 clean:
 	+make -C suro-v.1 clean
 	rm -f suro.v synth.v synth.json Vsurov
 
-.PHONY: comp synth clean
+.PHONY: comp suro.v synth clean

@@ -8,10 +8,10 @@ testbench: verilate $(SV_SRCS) $(CPP_TB)
 	make -C obj_dir -f Vsurov.mk
 
 verilate: $(SV_SRCS)
-	verilator -CFLAGS $(CFLAGS) +define+REG_COUNT=$(REG_COUNT) --cc --exe $(SV_SRCS) $(CPP_TB) --trace --trace-structs --top surov -Wno-UNOPTFLAT
+	verilator -CFLAGS $(CFLAGS) +define+SHADD +define+REG_COUNT=$(REG_COUNT) --cc --exe $(SV_SRCS) $(CPP_TB) --trace --trace-structs --top surov -Wno-UNOPTFLAT
 
 synth: $(SV_SRCS)
-	sv2v -DREG_COUNT=$(REG_COUNT) $+ > suro.v
+	sv2v -DSHADD -DREG_COUNT=$(REG_COUNT) $+ > suro.v
 
 .PHONY: clean
 clean:

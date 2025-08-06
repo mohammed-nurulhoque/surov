@@ -26,6 +26,7 @@ typedef enum bit[6:0] {
     OP_FENCE	= 7'b00_011_11,
     OP_SYS      = 7'b11_100_11
 } opcode_t;
+typedef logic[4:0] iop_t;
 
 typedef enum bit[2:0] {
     FUNC_ADDSUB  = 3'b000,
@@ -54,15 +55,15 @@ typedef enum bit[2:0] {
     SYS_CSRRC
 } sys_f3_t;
 
-typedef enum bit[7:0] {
-    ADDER_ADD = 8'b00000001,
-    ADDER_SUB = 8'b00000010,
-    ADDER_EQ  = 8'b00000100,
-    ADDER_NE  = 8'b00001000,
-    ADDER_LT  = 8'b00010000,
-    ADDER_GE  = 8'b00100000,
-    ADDER_LTU = 8'b01000000,
-    ADDER_GEU = 8'b10000000
+typedef enum bit[2:0] {
+    ADDER_ADD = 3'b010,
+    ADDER_SUB = 3'b011,
+    ADDER_EQ  = BR_EQ,
+    ADDER_NE  = BR_NE,
+    ADDER_LT  = BR_LT,
+    ADDER_GE  = BR_GE,
+    ADDER_LTU = BR_LTU,
+    ADDER_GEU = BR_GEU
 } adderOp_t;
 
 function logic[4:0] ext_rd (input word_t inst);

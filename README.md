@@ -1,6 +1,6 @@
 # suro-v
 
-A tiny RISC-V processor that implements RV32I + Zicntr* + Zba. Uses a multi-cycle architecture where each instruction takes 2-4 cycles. Large shifts take additional cycles through a multi-stage shifter that can shift up to 3 bits per cycle.
+A tiny RISC-V processor that implements RV32I + Zicntr* + Zba. Uses a multi-cycle architecture where each instruction takes 2-4 cycles. Large shifts take additional cycles through a multi-stage shifter that can shift up to 3 bits per cycle. No interrupts or privilaged instructions.
 
 *Zicntr is basic cycle counter only - time returns cycle count, no higher performance counters.
 
@@ -25,25 +25,30 @@ A tiny RISC-V processor that implements RV32I + Zicntr* + Zba. Uses a multi-cycl
 
 ## Performance
 
-Quick PPA using OpenSTA with 45nm NAND process. No place & route.
+Quick PPA using openroad-flow-script nangate45.
 
-| Config | DMIPS/MHz | Area (mm²/1000) | Freq (MHz) | Power (mW) | Perf/Area |
-|--------|-----------|-----------------|------------|------------|-----------|
-| suro-v i_zba | 0.50 | 10.8 | 177 | 7.54 | 46 |
-| suro-v e_zba | 0.48 | 7.0 | 188 | 5.56 | 69 |
-| picorv32* | 0.52 | 27.5 | 113 | 9.99 | 19 |
-| picorv32** | ? | 13.8 | 229 | 5.45 | ?<38 |
+| Config | DMIPS/MHz | Area (mm²/1000) | Freq (MHz)<sup>1</sup> | Power (mW) | DMIPS/MHz/mm2 | DMIPS/mm2 | DMIPS/W
+|--------|-----------|-----------------|------------|------------|-----------| --- | ---
+| suro-v i_zba | 0.498 | 14.96 | 618 | 41.6 | 33.3 | 20600 | 7400 |
+| suro-v e_zba | 0.479 | 10.22 | 596 | 29.2 | 46.9 | 27900 | 9777 |
+| suro-v e_zba latch_rf | 0.479 | 8.73 | 563 | 31.6 | 54.9 | 30900 | 8534 |
+| VexRiscv<sup>2</sup>   | 0.82 | 24.34 | 794 | 71.2 | 33.7 | 26750 | 9140
+| picorv32<sup>3</sup>  | < 0.516 | 21.4 | 849 | 94.2 | < 24.11 | < 20500 | < 4650
+| picorv32e<sup>3</sup> | << 0.516 | 15.3 | 905 | 63.0 | << 33.7 | << 30500 | << 7412
 
-*Published picorv32 Dhrystone results  
-**Comparable picorv32 config (ENABLE_COUNTERS64=0, ENABLE_REGS_DUALPORT=0, CATCH_MISALIGN=0, CATCH_ILLINSN=0)
+<sup>1</sup> Freq is just 1/arrival time of wns path, with an unattainable timing target.
 
-Not bad for a first serious CPU design and solo effort. The stripped-down picorv32 is much closer in area (still 28% larger though), but suro-v holds its own on performance density. The RV32E version does particularly well - nearly 70 DMIPS/MHz per mm².
+<sup>2</sup> VexRiscv min config from m-labs/VexRiscv-verilog.
 
-## Why Multi-Cycle?
+<sup>3</sup> Comparable picorv32 config (ENABLE_COUNTERS64=0, CATCH_MISALIGN=0, CATCH_ILLINSN=0). The published 0.516 is for a core with barrel shifter, MUL and DIV, so the comparable core will have a lower score.
 
- Multi-cycle designs can be really area efficient. Each functional unit gets used multiple times per instruction, so you need fewer of them. Plus shorter critical paths = higher frequency on the same process.
 
-Trade-off is obvious - lower IPC. But for a lot of embedded stuff, the area/power savings are worth it.
+## Design Optimizations
+
+* The alu uses a single adder, mux'ed for add/sub/compares.
+* The same adder is used for ALU ops, next pc calculation, load/store offsets.
+* shifter shifts up to 3 bits at a time. Right shifts take 1 extra cycle. All 3 kinds of shifts mux the same shifting circuit.
+* Next instruction is prefetched during each instruction. 
 
 # How to Run
 
