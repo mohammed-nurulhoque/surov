@@ -1,14 +1,19 @@
 # suro-v
 
-A tiny RISC-V processor that implements RV32I + Zicntr* + Zba. Uses a multi-cycle architecture where each instruction takes 2-4 cycles. Large shifts take additional cycles through a multi-stage shifter that can shift up to 3 bits per cycle. No interrupts or privilaged instructions.
+A tiny RISC-V processor that implements RV32I/E + Zicntr* + Zba. Uses a multi-cycle architecture where each instruction takes 2-4 cycles. Large shifts take additional cycles through a multi-stage shifter that can shift up to 3 bits per cycle. No interrupts or privilaged instructions.
 
-*Zicntr is basic cycle counter only - time returns cycle count, no higher performance counters.
+Passes RISCV ISA tests rv32ui-p* and rv32uzba-p*.
+
+Achives 0.498 DMIPS/MHz for I variant and 0.479 for E variant.
+
+*Zicntr is basic cycle counter only - time returns cycle count, no higher-bit counters.
 
 ## Architecture
 
-- **ISA**: RV32I + Zicntr (cycle counter only) + Zba
-- **Design**: Multi-cycle, 2-4 cycles per instruction
-- **Shifter**: Multi-stage, up to 3 bits per cycle
+- **ISA**: RV32I + Zicntr (cycle counter only) + Zba. Fences are NOP.
+- **Pipeline**: Multi-cycle, 2-4 cycles per instruction. Next instruction is prefetched during each instruction. 
+- **Shifter**: Multi-stage, up to 3 bits per cycle. Right shifts take 1 extra cycle. All 3 kinds of shifts mux the same shifting circuit.
+- **Adder** a single adder mux'ed for add/sub/compares, next pc calculation and load/store offsets. A separate adder shared between cycle/instret CSRs.
 
 ### Instruction Timing
 
@@ -42,15 +47,7 @@ Quick PPA using openroad-flow-script nangate45.
 
 <sup>3</sup> Comparable picorv32 config (ENABLE_COUNTERS64=0, CATCH_MISALIGN=0, CATCH_ILLINSN=0). The published 0.516 is for a core with barrel shifter, MUL and DIV, so the comparable core will have a lower score.
 
-
-## Design Optimizations
-
-* The alu uses a single adder, mux'ed for add/sub/compares.
-* The same adder is used for ALU ops, next pc calculation, load/store offsets.
-* shifter shifts up to 3 bits at a time. Right shifts take 1 extra cycle. All 3 kinds of shifts mux the same shifting circuit.
-* Next instruction is prefetched during each instruction. 
-
-# How to Run
+## How to Run
 
 ```
 cd hw/
