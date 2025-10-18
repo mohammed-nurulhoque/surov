@@ -4,7 +4,7 @@
 VERILOG_FILE="${1:-suro.v}"
 TOP_MODULE="${2:-surov}"
 OUTPUT="${3:-synth}"
-LIB_FILE="lib/NangateOpenCellLibrary_typical.lib"
+LIB_FILE="$(dirname "$(realpath "$0")")/lib/NangateOpenCellLibrary_typical.lib"
 
 # Temporary Yosys script
 YS_SCRIPT=$(mktemp --suffix .ys)

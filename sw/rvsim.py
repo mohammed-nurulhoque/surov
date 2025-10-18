@@ -61,28 +61,34 @@ class Mem:
         self.base = base
         self.arr = bytearray(img)
     def lb(self, i):
-        if i < self.base or i > self.base + len(self.arr): raise Trap()
-        i -= base
+        if i < self.base or i >= self.base + len(self.arr):
+            raise Trap()
+        i -= self.base
         return int.from_bytes(self.arr[i:i+1], byteorder='little')
     def lh(self, i):
-        if i < self.base or i > self.base + len(self.arr): raise Trap()
-        i -= base
+        if i < self.base or i >= self.base + len(self.arr):
+            raise Trap()
+        i -= self.base
         return int.from_bytes(self.arr[i:i+2], byteorder='little')
     def lw(self, i):
-        if i < self.base or i > self.base + len(self.arr): raise Trap()
-        i -= base
+        if i < self.base or i >= self.base + len(self.arr):
+            raise Trap()
+        i -= self.base
         return int.from_bytes(self.arr[i:i+4], byteorder='little')
     def sb(self, i, v):
-        if i < self.base or i > self.base + len(self.arr): raise Trap()
-        i -= base
+        if i < self.base or i >= self.base + len(self.arr):
+            raise Trap()
+        i -= self.base
         self.arr[i:i+1] = si(v).to_bytes(1, byteorder='little', signed=True)
     def sh(self, i, v):
-        if i < self.base or i > self.base + len(self.arr): raise Trap()
-        i -= base
+        if i < self.base or i >= self.base + len(self.arr):
+            raise Trap()
+        i -= self.base
         self.arr[i:i+2] = si(v).to_bytes(2, byteorder='little', signed=True)
     def sw(self, i, v):
-        if i < self.base or i > self.base + len(self.arr): raise Trap()
-        i -= base
+        if i < self.base or i >= self.base + len(self.arr):
+            raise Trap()
+        i -= self.base
         self.arr[i:i+4] = si(v).to_bytes(4, byteorder='little', signed=True)
 
 
@@ -102,26 +108,36 @@ def shamt(i):
 def bitsreq(l: list):
     return max(map(lambda x: x.bit_length()//12 + 1, l))
 
-def op_cycles(inst):
-    if f7(instr) == f7shadd:
-        return 3
+def op_cycles(inst, rs1val, rs2val, rdval, rd_prev):
+    if OPC(opcode(inst)) == OPC.opop and f7(inst) == f7shadd:
+        cycles = 4
     else:
-        match OPOPF3(f3(instr)):
-            case OPOPF3.sll: return 3 + 
-inst_cycles ={
-    OPC.opop:  lambda instr: 3,
-    OPC.opimm: lambda _: 2,
-    OPC.load:  lambda _: 3,
-    OPC.store: lambda _: 3,
-    OPC.br:    lambda _: 4,
-    OPC.jal:   lambda _: 2,
-    OPC.jalr:  lambda _: 2,
-    OPC.lui:   lambda _: 2,
-    OPC.auipc: lambda _: 2,
-    OPC.sys:   lambda _: 2,
-    OPC.fence: lambda _: 2
+        match OPOPF3(f3(inst)):
+            case OPOPF3.sr:
+                cycles = 3 + rs2val // 3
+            case OPOPF3.sll:
+                cycles = 2 + rs2val // 3
+            case _:
+                cycles = 2
+    if OPC(opcode(inst)) == OPC.opop: cycles += 1
+    # if rs1(inst) == rd_prev: cycles -= 1
+    return cycles
 
+inst_cycles = {
+    # All cycle functions have the signature: fn(instr, rs1, rs2, rd, rd_prev) -> int
+    OPC.opop:  (lambda instr, rs1, rs2, rd, rd_prev: op_cycles(instr, rs1, rs2, rd, rd_prev)),
+    OPC.opimm: (lambda instr, rs1, rs2, rd, rd_prev: op_cycles(instr, rs1, rs2, rd, rd_prev)),
+    OPC.load:  (lambda instr, *_: 3),
+    OPC.store: (lambda instr, *_: 3),
+    OPC.br:    (lambda instr, *_: 4),
+    OPC.jal:   (lambda instr, *_: 2),
+    OPC.jalr:  (lambda instr, *_: 2),
+    OPC.lui:   (lambda instr, *_: 2),
+    OPC.auipc: (lambda instr, *_: 2),
+    OPC.sys:   (lambda instr, *_: 2),
+    OPC.fence: (lambda instr, *_: 2),
 }
+
 
 class Cntrs:
     def __init__(self):
@@ -130,10 +146,18 @@ class Cntrs:
         self.retired = 0
         self.jalr = 0
         self.jalr0 = 0
-    
-    def update(self, instr: int) -> None:
+
+    def update(self, instr: int, rs1val: int = None, rs2val: int = None, rdval: int = None, rd_prev: int = None) -> None:
+        """Update counters for an executed instruction.
+
+        The trace arguments rs1, rs2, rd are the runtime values (or None).
+        inst_cycles functions may inspect those values to compute variable
+        cycle costs.
+        """
         op = OPC(opcode(instr))
-        cycles = inst_cycles[op](instr)
+        cycles = inst_cycles[op](instr, rs1val, rs2val, rdval, rd_prev)
+        # if rs1(instr) == rd_prev or rs1(instr) == 0:
+        #     cycles -= 1
         self.time += cycles
         self.cycle += cycles
         self.retired += 1
@@ -142,12 +166,12 @@ class Cntrs:
             if i_imm(instr) == 0:
                 self.jalr0 += 1
 
-    def print_stats(self, ):
-        sys.stderr.write(f'cycles: {self.cycle}')
-        sys.stderr.write(f'time: {self.time}')
-        sys.stderr.write(f'insr retired: {self.retired}')
-        sys.stderr.write(f'jalr: {self.jalr}')
-        sys.stderr.write(f'jalr imm=0: {self.jalr0}')
+    def print_stats(self) -> None:
+        sys.stderr.write(f'cycles: {self.cycle}\n')
+        sys.stderr.write(f'time:   {self.time}\n')
+        sys.stderr.write(f'insn retired: {self.retired}\n')
+        sys.stderr.write(f'jalr: {self.jalr}\n')
+        sys.stderr.write(f'jalr imm=0: {self.jalr0}\n')
 
 class CPU:
     def __init__(self, img: bytes, base: int, pc_init: int) -> None:
@@ -155,45 +179,52 @@ class CPU:
         self.rf = {r: 0 for r in REG}
         self.mem = Mem(img, base)
         self.cntrs = Cntrs()
+        # previously-written destination register (REG enum) or None
+        self.prev_rd = None
 
 
     def clock(self):
         instr = self.mem.lw(self.pc)
         rdval = None
         next_pc = self.pc + 4
+        # Capture operand values now so we can always pass them to the
+        # counters regardless of which instruction path is taken. Some
+        # cycle models depend on operand values.
+        rs1val = self.rf[REG(rs1(instr))]
+        rs2val = self.rf[REG(rs2(instr))]
         match OPC(opcode(instr)):
             case OPC.lui:
                 rdval = u_imm(instr)
             case OPC.auipc:
                 rdval = self.pc + u_imm(instr)
             case OPC.opimm:
-                imm = i_imm(instr)
+                rs2val = i_imm(instr)
                 rs1val = self.rf[REG(rs1(instr))]
                 match OPIMMF3(f3(instr)):
                     # logical r-i
                     case OPIMMF3.xori:
-                        rdval = rs1val ^ ui(imm)
+                        rdval = rs1val ^ ui(rs2val)
                     case OPIMMF3.ori:
-                        rdval = rs1val | ui(imm)
+                        rdval = rs1val | ui(rs2val)
                     case OPIMMF3.andi:
-                        rdval = rs1val & ui(imm)
+                        rdval = rs1val & ui(rs2val)
                     case OPIMMF3.slli:
-                        imm = imm & 31
-                        rdval = rs1val << imm
+                        rs2val = rs2val & 31
+                        rdval = rs1val << rs2val
                         inext = self.mem.lw(next_pc)
                     case OPIMMF3.sri:
-                        imm = imm & 31
+                        rs2val = rs2val & 31
                         if arith(instr):
-                            rdval = si(rs1val) >> imm
+                            rdval = si(rs1val) >> rs2val
                         else:
-                            rdval = rs1val >> imm
+                            rdval = rs1val >> rs2val
                     # arithmetic r-i
                     case OPIMMF3.addi:
-                        rdval = rs1val + imm
+                        rdval = rs1val + rs2val
                     case OPIMMF3.slti:
-                        rdval = int(si(rs1val) < si(imm))
+                        rdval = int(si(rs1val) < si(rs2val))
                     case OPIMMF3.sltiu:
-                        rdval = int(ui(rs1val) < ui(imm))
+                        rdval = int(ui(rs1val) < ui(rs2val))
             case OPC.opop:
                 rs1val = self.rf[REG(rs1(instr))]
                 rs2val = self.rf[REG(rs2(instr))]
@@ -337,10 +368,18 @@ class CPU:
                 pass
             case _:
                 sys.stderr.write(f'\n Unrecognized instruction :{instr}\n')
-        self.cntrs.update(instr, rs1val, rs2val)
+        # pass previous destination register (may be None) so cycle models
+        # can detect rs1==rd_prev shortcuts
+        self.cntrs.update(instr, rs1val, rs2val, rdval, self.prev_rd)
 
         if rdval is not None and REG(rd(instr)) != REG.x0:
+            if type(rdval) is not int:
+                print(f'rdval not int: {rdval} type {type(rdval)}. Instr {instr:x} @pc {self.pc:x} OPC {OPC(opcode(instr))}')
             self.rf[REG(rd(instr))] = ui(rdval)
+            # record this rd as prev_rd for the next instruction
+            self.prev_rd = rd(instr)
+        else:
+            self.prev_rd = None
         self.pc = next_pc
         return self.pc
 
