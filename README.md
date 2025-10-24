@@ -21,13 +21,81 @@ Achives 0.498 DMIPS/MHz for I variant and 0.479 for E variant.
 |----------------|--------|
 | ALU (reg-reg)  | 3      |
 | ALU (reg-imm)  | 2      |
-| Load/Store     | 3      |
-| Branches       | 4      |
+| Load           | 4      |
+| Store          | 2      |
+| Branch not taken  | 3   |
+| branch taken   | 4      |
 | JAL            | 2      |
 | JALR           | 3      |
 
-![suro-v Architecture](surov.svg)
 
+```mermaid
+graph TD
+subgraph D [Op-Op]
+    subgraph r1 [ ]
+        pc1[pc]
+    end
+    subgraph r2 [ ]
+        s1
+        pc2[pc]
+        m1[MEM]
+    end
+    rs1((rs1)) --> RF --> s1
+    pc1 --> +4 --> pc2
+    +4 --> m1
+
+    subgraph r3 [ ]
+        s2
+    end
+    rs2((rs2)) --> RF2[RF] --> s2
+    s1 ~~~ RF2
+
+    subgraph r4 [ ]
+        RF3[RF]
+        pc3[pc]
+        m2[MEM]
+        Inst
+    end
+    s2 --> +&
+    s1 --> +&
+    +& --> RF3[RF]
+    pc2 --> plus2[+4] --> C{ } --> m2
+    C --> pc3
+    m1 --> Inst
+    r3 ~~~ plus2
+end
+style D fill:#969
+```
+
+```mermaid
+graph TD
+subgraph D [Op-Imm]
+    subgraph r1 [ ]
+        pc1[pc]
+    end
+    subgraph r2 [ ]
+        s1
+        pc2[pc]
+        m1[MEM]
+    end
+    subgraph r4 [ ]
+        RF3[RF]
+        pc3[pc]
+        m2[MEM]
+        Inst
+    end
+    rs1((rs1)) --> RF --> s1
+    pc1 --> +4 --> pc2
+    +4 --> m1
+    imm((imm)) --> +&
+    s1 --> +&
+    +& --> RF3[RF]
+    pc2 --> plus2[+4] --> m2
+    plus2 --> C{ } --> pc3
+    m1 --> Inst
+end
+style D fill:#969
+```
 ## Performance
 
 Quick PPA using openroad-flow-script nangate45.

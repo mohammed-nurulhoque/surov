@@ -13,11 +13,11 @@ module surov (
 );
     ctrl_t ctrl;
     logic done;
+    logic branch_taken;
 
     opcode_t opcode;
 
     logic[1:0] cycle /*verilator public*/;
-    logic[1:0] max_cycle /*verilator public*/;
 
     regnum_t  regnum;
     word_t rfread_data;
@@ -46,6 +46,7 @@ module surov (
         .rst(rst),
         .ctrl(ctrl),
         .done(done),
+        .branch_taken(branch_taken),
         .opcode(opcode),
         .regnum(regnum),
         .rfread_data(rfread_data),
@@ -63,12 +64,12 @@ module surov (
         .rst(rst),
         .opcode(opcode),
         .done(done),
-        .control(ctrl),
+        .branch_taken(branch_taken),
+        .ctrl(ctrl),
         .rf_wren(rf_wren),
         .mem_rden(mem_rden),
         .mem_wren(mem_wren),
         .cycle(cycle),
-        .max_cycle(max_cycle),
         .trap(trap)
     );
 
@@ -76,7 +77,6 @@ module surov (
         .clk(clk),
         .rst(rst),
         .cycle(cycle),
-        .max_cycle(max_cycle),
         .start(ctrl.start),
         .addr(cntr_addr),
         .data(cntr_data)

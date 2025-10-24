@@ -127,8 +127,8 @@ inst_cycles = {
     # All cycle functions have the signature: fn(instr, rs1, rs2, rd, rd_prev) -> int
     OPC.opop:  (lambda instr, rs1, rs2, rd, rd_prev: op_cycles(instr, rs1, rs2, rd, rd_prev)),
     OPC.opimm: (lambda instr, rs1, rs2, rd, rd_prev: op_cycles(instr, rs1, rs2, rd, rd_prev)),
-    OPC.load:  (lambda instr, *_: 3),
-    OPC.store: (lambda instr, *_: 3),
+    OPC.load:  (lambda instr, *_: 4),
+    OPC.store: (lambda instr, *_: 2),
     OPC.br:    (lambda instr, *_: 4),
     OPC.jal:   (lambda instr, *_: 2),
     OPC.jalr:  (lambda instr, *_: 2),
@@ -147,7 +147,7 @@ class Cntrs:
         self.jalr = 0
         self.jalr0 = 0
 
-    def update(self, instr: int, rs1val: int = None, rs2val: int = None, rdval: int = None, rd_prev: int = None) -> None:
+    def update(self, instr: int, rs1val: int = None, rs2val: int = None, rdval: int = None, rd_prev: int = None, br_untaken: bool = None) -> None:
         """Update counters for an executed instruction.
 
         The trace arguments rs1, rs2, rd are the runtime values (or None).
@@ -156,8 +156,10 @@ class Cntrs:
         """
         op = OPC(opcode(instr))
         cycles = inst_cycles[op](instr, rs1val, rs2val, rdval, rd_prev)
-        # if rs1(instr) == rd_prev or rs1(instr) == 0:
-        #     cycles -= 1
+        if rs1(instr) == rd_prev or rs1(instr) == 0:
+            cycles -= 1
+        if br_untaken:
+            cycles -= 1
         self.time += cycles
         self.cycle += cycles
         self.retired += 1
@@ -370,7 +372,7 @@ class CPU:
                 sys.stderr.write(f'\n Unrecognized instruction :{instr}\n')
         # pass previous destination register (may be None) so cycle models
         # can detect rs1==rd_prev shortcuts
-        self.cntrs.update(instr, rs1val, rs2val, rdval, self.prev_rd)
+        self.cntrs.update(instr, rs1val, rs2val, rdval, self.prev_rd, (OPC(opcode(instr)) == OPC.br) and (next_pc == self.pc + 4))
 
         if rdval is not None and REG(rd(instr)) != REG.x0:
             if type(rdval) is not int:

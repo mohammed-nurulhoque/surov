@@ -181,21 +181,13 @@ int main(int argc, char *argv[]) {
             return (r[4U] << (32-regaddr_width)) | (r[3U] >> regaddr_width);
         };
 
-        auto r = dut.surov->dp->r;
-        unsigned pc = ext_pc(r);
-        unsigned inst = ext_inst(r);
+        unsigned pc = dut.surov->dp->pc;
+        unsigned inst = dut.surov->dp->ir;
 
         if (dut.surov->cycle == 0) {
             instr_count++;
-            // Output <pc> <cycles> to tracefile if enabled
-            if (tracefile) {
-                unsigned cycles = dut.surov->max_cycle + 1;
-                auto r = dut.surov->dp->r;
-                pc = ext_pc(r);
-                trace_ofs << std::hex << pc << " " << std::dec << cycles << std::endl;
-            }
         }
-        
+
         try {
             // load
             if (dut.mem_rden) {

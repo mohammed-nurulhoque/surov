@@ -6,142 +6,196 @@ module control (
 
     input opcode_t opcode,
     input logic done,
+    input logic branch_taken,
 
-    output ctrl_t control,
+    output ctrl_t ctrl,
     output logic rf_wren,
     output logic mem_rden,
     output logic mem_wren,
 
     output logic[1:0] cycle,
-    output logic[1:0] max_cycle,
     output logic trap
 );
-    iop_t saved_opcode;
-    opcode_t current_opcode;
     logic start;
-
-    always_comb begin
-        unique case (current_opcode)
-            OP_OP:     max_cycle = 2;
-            OP_IMM:    max_cycle = 1;
-            OP_LOAD:   max_cycle = 2;
-            OP_STORE:  max_cycle = 2;
-            OP_BRANCH: max_cycle = 3;
-            OP_JAL:    max_cycle = 1;
-            OP_JALR:   max_cycle = 2;
-            OP_AUIPC:  max_cycle = 1;
-            OP_LUI:    max_cycle = 1;
-            OP_FENCE:  max_cycle = 1;
-            OP_SYS:    max_cycle = 1;
-            default:   max_cycle = 0; // should not happen
-        endcase
-    end
 
     always_ff @(posedge clk) begin
         if (rst) begin
             cycle <= `CYCLE_INIT;
-            saved_opcode <= opcode[6:2];
             start <= 1;
         end else begin
             if (done) begin
-                cycle <= (cycle == max_cycle) ? 0: cycle + 1;
                 start <= 1;
+                unique case (cycle)
+                    0: begin
+                        unique case (opcode)
+                            OP_OP, OP_LOAD, OP_STORE, OP_BRANCH, OP_JALR: cycle <= 1;
+                            default: cycle <= 2;
+                        endcase
+                    end
+                    1: begin
+                        unique case (opcode)
+                            OP_STORE: cycle <= 0;
+                            default: cycle <= 2;
+                        endcase
+                    end
+                    2: begin
+                        unique case (opcode)
+                            OP_LOAD: cycle <= 3;
+                            OP_BRANCH: cycle <= branch_taken ? 3 : 0;
+                            default: cycle <= 0;
+                        endcase
+                    end
+                    3: cycle <= 0;
+                endcase
             end else begin
                 start <= 0;
             end
-            if (cycle == max_cycle)
-                saved_opcode <= opcode[6:2];
         end
     end
-    assign current_opcode = opcode_t'({saved_opcode, 2'b11});
-    assign trap = current_opcode == OP_SYS && cycle == 0;
+    assign trap = opcode == OP_SYS && cycle == 0;
 
     always_comb begin
-        control.opcode = current_opcode;
-        control.start = start;
-
-    // update PC
-        unique case (current_opcode)
-            OP_OP, OP_JALR: control.update_pc = cycle == 1;
-            OP_BRANCH: control.update_pc = (cycle == 0 || cycle == 2);
-            default: control.update_pc = cycle == 0;
-        endcase
-
-    // update instruction
-        unique case (current_opcode)
-            OP_LOAD, OP_STORE: control.update_instr = cycle == 1;
-            default: control.update_instr = (cycle == max_cycle) && done;
-        endcase
-
-    // read RF rs1, rs2
-        control.rf_rs1 = cycle == 0;
-        control.rf_rs2 = 0;
-        unique case (current_opcode)
-            OP_OP, OP_STORE: control.rf_rs2 = cycle == 1;
-            OP_BRANCH: begin
-                control.rf_rs1 = cycle == 1;
-                control.rf_rs2 = cycle == 0;
-            end
-            OP_JAL, OP_LUI, OP_AUIPC, OP_SYS, OP_FENCE: control.rf_rs1 = 0;
-        endcase
-
-        control.save_rd = cycle == 0;
-        control.save_f3 = (current_opcode == OP_BRANCH && cycle == 1);
-        control.save_store_target = (current_opcode == OP_STORE && cycle == 1);
-
-        unique case (current_opcode)
-            OP_BRANCH, OP_JAL, OP_AUIPC: control.save_pc = cycle == 0;
-            default: control.save_pc = 0;
-        endcase
-
-        control.save_pc_next = (current_opcode == OP_JALR && cycle == 0);
-        control.save_br_target = (current_opcode == OP_BRANCH && cycle == 1);
-        control.update_cntr_data = (current_opcode == OP_SYS && cycle == 0);
-
-        unique case (current_opcode)
-            OP_LOAD: control.memop = cycle == 1;
-            OP_STORE: control.memop = cycle == 2;
-            default: control.memop = 0;
-        endcase
-
+        ctrl.start = start;
         unique case (cycle)
-            0: case (current_opcode)
-                OP_OP: control.alu_ctrl = ALUC_NONE;
-                OP_JAL: control.alu_ctrl = ALUC_PC_IMM;
-                default: control.alu_ctrl = ALUC_PC_4;
-            endcase
-            1: case (current_opcode)
-                OP_OP: control.alu_ctrl = ALUC_PC_4;
-                OP_IMM: control.alu_ctrl = ALUC_OPEXE;
-                OP_JAL: control.alu_ctrl = ALUC_RS1_4;
-                OP_LUI, OP_FENCE, OP_SYS: control.alu_ctrl = ALUC_NONE;
-                default: control.alu_ctrl = ALUC_RS1_IMM;
-            endcase
-            2: case (current_opcode)
-                OP_OP: control.alu_ctrl = ALUC_OPEXE;
-                OP_BRANCH: control.alu_ctrl = ALUC_BRANCH_OP;
-                default: control.alu_ctrl = ALUC_NONE;
-            endcase
-            3: control.alu_ctrl = ALUC_NONE;
+            0: begin
+                ctrl.set_r1 = 1;
+                ctrl.r1_src = SRC_RF;
+                ctrl.set_r2 = 0;
+                ctrl.set_pc = 1;
+                ctrl.pc_src = (opcode == OP_JAL) ? SRC_ALU : SRC_PC_PLUS4;
+                ctrl.set_pc2 = 0;
+                ctrl.set_ir = 0;
+                unique case (opcode)
+                    OP_JAL:   ctrl.rf_src = SRC_PC_PLUS4;
+                    OP_AUIPC: ctrl.rf_src = SRC_ALU;
+                    default:  ctrl.rf_src = src_t'({ $bits(src_t){1'bx} }); // default (explicit enum-sized X)
+                endcase
+                unique case (opcode)
+                    OP_JAL:   ctrl.rf_regnum_src = RD;
+                    OP_AUIPC: ctrl.rf_regnum_src = RD;
+                    OP_LUI:   ctrl.rf_regnum_src = X0;
+                    default:  ctrl.rf_regnum_src = RS1; // default
+                endcase
+                ctrl.maddr_src = SRC_PC_PLUS4;
+                ctrl.memop = 0;
+                if (opcode == OP_JAL || opcode == OP_AUIPC) begin
+                    ctrl.alu_a_r1 = 0;
+                    ctrl.alu_b_r2 = 0;
+                    ctrl.alu_op = 0;
+                end else begin
+                    ctrl.alu_a_r1 = 'x;
+                    ctrl.alu_b_r2 = 'x;
+                    ctrl.alu_op = 'x;
+                end
+            end
+            1: begin
+                ctrl.set_r1 = 0; // if we forward rs2 from store to next instr, this needs to be set
+                ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });
+                ctrl.set_r2 = 1;
+                ctrl.set_pc = 0;
+                ctrl.pc_src = src_t'({ $bits(src_t){1'bx} });
+                ctrl.set_pc2 = (opcode == OP_BRANCH || opcode == OP_JALR);
+                ctrl.set_ir = opcode == OP_STORE;
+                ctrl.rf_src = SRC_ALU;
+                unique case (opcode)
+                    OP_JALR, OP_LOAD: ctrl.rf_regnum_src = X0;
+                    OP_OP, OP_STORE, OP_BRANCH:       ctrl.rf_regnum_src = RS2;
+                    default: ctrl.rf_regnum_src = regnum_src_t'({ $bits(regnum_src_t){1'bx} });
+                endcase
+                ctrl.maddr_src = SRC_ALU;
+                ctrl.memop = (opcode == OP_STORE || opcode == OP_LOAD);
+                unique case (opcode)
+                    OP_BRANCH:                  ctrl.alu_a_r1 = 0;
+                    OP_JALR, OP_LOAD, OP_STORE: ctrl.alu_a_r1 = 1;
+                    default:                    ctrl.alu_a_r1 = 'x;
+                endcase
+                ctrl.alu_b_r2 = 0;
+                ctrl.alu_op = 0;
+            end
+            2: begin
+                ctrl.set_r1 = 1;        // when forwarding, AUIPC should not set r1
+                unique case (opcode)
+                    OP_LOAD:   ctrl.r1_src = SRC_MEM;
+                    OP_OP, OP_IMM: ctrl.r1_src = SRC_ALU;
+                    default:   ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });  // forwarding will need to handle this
+                endcase
+                ctrl.set_r2 = 0;
+                ctrl.set_pc = ((opcode == OP_BRANCH && branch_taken) || opcode == OP_JALR);
+                ctrl.pc_src = SRC_PC2;
+                ctrl.set_pc2 = 0;
+                ctrl.set_ir = !(opcode == OP_LOAD || (opcode == OP_BRANCH && branch_taken));
+                ctrl.rf_src = SRC_ALU;
+                ctrl.rf_regnum_src = RD;
+                unique case (opcode)
+                    OP_LOAD:   ctrl.maddr_src = SRC_ALU;
+                    OP_BRANCH: ctrl.maddr_src = SRC_PC2;
+                    default:   ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
+                endcase
+                ctrl.memop = 0;
+                unique case (opcode)
+                    OP_IMM:    begin
+                        ctrl.alu_a_r1 = 1;
+                        ctrl.alu_b_r2 = 0;
+                        ctrl.alu_op = 1;
+                    end
+                    OP_OP, OP_BRANCH: begin
+                        ctrl.alu_a_r1 = 1;
+                        ctrl.alu_b_r2 = 1;
+                        ctrl.alu_op = 1;
+                    end
+                    OP_LUI: begin
+                        ctrl.alu_a_r1 = 1;
+                        ctrl.alu_b_r2 = 0;
+                        ctrl.alu_op = 0;
+                    end
+                    OP_LOAD, OP_JALR: begin
+                        ctrl.alu_a_r1 = 0;
+                        ctrl.alu_b_r2 = 1;
+                        ctrl.alu_op = 0;
+                    end
+                    default: begin
+                        ctrl.alu_a_r1 = 'x;
+                        ctrl.alu_b_r2 = 'x;
+                        ctrl.alu_op = 'x;
+                    end
+                endcase
+            end
+            3: begin
+                ctrl.set_r1 = 0;
+                ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });
+                ctrl.set_r2 = 0;
+                ctrl.set_pc = 0;
+                ctrl.pc_src = src_t'({ $bits(src_t){1'bx} });
+                ctrl.set_pc2 = 0;
+                ctrl.set_ir = 1;
+                ctrl.rf_src = src_t'({ $bits(src_t){1'bx} });
+                ctrl.rf_regnum_src = regnum_src_t'({ $bits(regnum_src_t){1'bx} });
+                ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
+                ctrl.memop = 0;
+                ctrl.alu_a_r1 = (opcode == OP_LOAD) ? 1 : 'X;
+                ctrl.alu_b_r2 = (opcode == OP_LOAD) ? 1 : 'X;;
+                ctrl.alu_op = 0;
+            end
         endcase
     end
 
     // RF write enable
     always_comb begin
-        unique case (current_opcode)
+        unique case (opcode)
             OP_STORE, OP_BRANCH, OP_FENCE: rf_wren = 0;
-            OP_LUI: rf_wren = cycle == 0;
-            default: rf_wren = cycle == max_cycle;
+            OP_JAL, OP_AUIPC: rf_wren = cycle == 0;
+            OP_LOAD: rf_wren = cycle == 3;
+            default: rf_wren = cycle == 2;
         endcase
     end
 
     always_comb begin
-        unique case (current_opcode)
+        unique case (opcode)
             OP_BRANCH: mem_rden = cycle == 2;
-            OP_LOAD: mem_rden = control.update_pc || control.memop;
-            default: mem_rden = control.update_pc;
+            OP_LOAD: mem_rden = ctrl.set_pc || ctrl.memop;
+            default: mem_rden = ctrl.set_pc;
         endcase
     end
-    assign mem_wren = current_opcode == OP_STORE && cycle == 2;
+    assign mem_wren = opcode == OP_STORE && cycle == 2;
 
 endmodule

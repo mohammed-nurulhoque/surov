@@ -1,9 +1,52 @@
+
+function word_t pc2word(input pc_t pc);
+    return word_t'(pc) << 2;
+endfunction
+
+function pc_t word2pc(input word_t addr);
+    return pc_t'(addr >> 2);
+endfunction
+
+function word_t mux_src(
+    src_t src,
+    pc_t pc2,
+    pc_t pc_plus4,
+    word_t memout,
+    word_t rfout,
+    word_t aluout,
+    word_t cntrdata);
+    case (src)
+        SRC_PC2:   return pc2word(pc2);
+        SRC_MEM:   return memout;
+        SRC_RF:    return rfout;
+        SRC_ALU:   return aluout;
+        SRC_PC_PLUS4: return pc2word(pc_plus4);
+        SRC_CNTR:  return cntrdata;
+        default:   return 'x; // invalid source
+    endcase
+endfunction
+
+function word_t ext_imm(input word_t ir);
+    unique case (ext_opcode(ir))
+        OP_LUI:    return ext_u_imm(ir);
+        OP_JALR:   return ext_i_imm(ir);
+        OP_IMM:    return ext_i_imm(ir);
+        OP_AUIPC:  return ext_u_imm(ir);
+        OP_LOAD:   return ext_i_imm(ir);
+        OP_STORE:  return ext_s_imm(ir);
+        OP_BRANCH: return ext_b_imm(ir) - 4;
+        OP_JAL:    return ext_j_imm(ir);
+        default:   return 'x; // no immediate for other instructions
+    endcase
+endfunction
+
 module datapath (
     input logic clk,
     input logic rst,
 
     input ctrl_t ctrl,
     output logic done,
+    output logic branch_taken,
 
     output opcode_t opcode,
 
@@ -19,73 +62,12 @@ module datapath (
     input  word_t memread_data,
     output word_t memwrite_data
 );
-    dp_regs_t r /*verilator public*/;
-    // update state registers
-    always_ff @(posedge clk) begin
-        // reset
-        if (rst) begin
-            r.pc       <= memread_data[31:0];
-            r._1.inst  <= `INST_INIT;
-        end else begin
-            if (ctrl.update_pc) begin
-                if (ctrl.alu_ctrl == ALUC_BRANCH_OP) begin
-                    if (alu_out != 0)
-                        r.pc <= r._1.branch_target[31:0]; // branch target
-                end
-                else 
-                    r.pc <= alu_out[31:0];
-            end
-            
-            if (ctrl.save_br_target)
-                r._1.branch_target <= alu_out;
-            else if (ctrl.update_instr)
-                r._1.inst <= memread_data;
-        end
+    // state registers
+    word_t r1, r2, ir /*verilator public*/;
+    pc_t pc /*verilator public*/;
+    pc_t pc2;
 
-        if (ctrl.rf_rs1)
-            r._2.r1 <= rfread_data;
-        else if (ctrl.alu_ctrl == ALUC_OPEXE)
-            r._2.r1 <= alu_out;
-        else if (ctrl.save_store_target)
-            r._2.store_address <= alu_out;
-        else if (ctrl.save_pc)
-            r._2.saved_pc <= {r.pc};
-
-
-        if (ctrl.rf_rs2)
-            r._3.r2 <= rfread_data;
-        else if (ctrl.alu_ctrl == ALUC_OPEXE && (ext_f3(r._1.inst) == FUNC_SLL || ext_f3(r._1.inst) == FUNC_SR))
-            r._3.r2 <= word_t'(alu_shamt_out);
-        else if (ctrl.save_pc_next)
-            r._3.saved_pc_next <= alu_out;
-        else if (ctrl.update_cntr_data)
-            r._3.cntr_data <= cntr_data;
-        
-
-        if (ctrl.save_rd)
-            r._4.rd <= regnum_t'(ext_rd(r._1.inst));
-        else if (ctrl.save_f3)
-            r._4.brf3 <= branch_t'(ext_f3(r._1.inst));
-        else if (ctrl.save_store_target)
-            r._4.store_size <= mem_addr_t'(ext_f3(r._1.inst));
-    end
-
-    // immediate extraction
-    word_t imm;
-    always_comb begin
-        unique case (ctrl.opcode)
-            OP_LUI:  imm = ext_u_imm(r._1.inst);
-            OP_JALR: imm = ext_i_imm(r._1.inst);
-            OP_IMM:  imm = ext_i_imm(r._1.inst);
-            OP_AUIPC: imm = ext_u_imm(r._1.inst);
-            OP_LOAD: imm = ext_i_imm(r._1.inst);
-            OP_STORE: imm = ext_s_imm(r._1.inst);
-            OP_BRANCH: imm = ext_b_imm(r._1.inst);
-            OP_JAL:  imm = ext_j_imm(r._1.inst);
-            default: imm = 'x; // no immediate for other instructions
-        endcase
-    end
-
+    // ALU wires
     word_t alu_src_a;
     word_t alu_src_b;
     logic[2:0] alu_f3;
@@ -112,89 +94,82 @@ module datapath (
         .done(done)
     );
 
+    assign branch_taken = (opcode == OP_BRANCH) && ctrl.alu_op && alu_out[0];
+
+    pc_t pc_plus4;
+    assign pc_plus4 = pc + 1;
+    assign opcode = ext_opcode(ir);
+
+    // update state registers
+    word_t pc_next_w;
+    always_ff @(posedge clk) begin
+        // reset
+        if (rst) begin
+            pc     <= word2pc(memread_data[31:0]);
+            ir     <= `INST_INIT;
+        end else begin
+            if (ctrl.set_ir) begin
+                ir <= memread_data;
+            end
+
+            pc_next_w = mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x);
+            if (ctrl.set_pc)
+                pc <= word2pc(pc_next_w);
+        end
+    end
+
+    always_ff @(posedge clk) begin
+        word_t r1_next = mux_src(ctrl.r1_src, 'x, 'x, memread_data, rfread_data, alu_out, 'x);
+        if (ctrl.set_r1)
+            r1 <= r1_next;
+        
+        if (ctrl.set_r2)
+            r2 <= rfread_data;
+        
+        if (ctrl.set_pc2)
+            pc2 <= word2pc(alu_out);
+    end
+
+    // ALU operation
+    word_t imm = ext_imm(ir);
     always_comb begin
-        alu_src_a = r._2.r1;
-        alu_src_b = 'X; // default ALU source B
+        alu_src_a = ctrl.alu_a_r1 ? r1: pc2word(pc);
+        alu_src_b = ctrl.alu_b_r2 ? r2: imm;
+        
         alu_f3 = FUNC_ADDSUB; // default ALU function
         alu_arith_bit = 0; // default arithmetic bit
+        alu_branch = 0; // default branch
 `ifdef SHADD
         alu_shadd = 0; // default shift/add
 `endif
-        alu_branch = 0; // default branch
-        unique case (ctrl.alu_ctrl)
-            ALUC_PC_4: begin
-                alu_src_a = {r.pc};
-                alu_src_b = 4; // PC + 4
-            end
-            ALUC_PC_IMM: begin
-                alu_src_a = {r.pc};
-                alu_src_b = imm;
-            end
-            ALUC_RS1_4: begin
-                alu_src_b = 4; // RS1 + 4
-            end
-            ALUC_RS1_IMM: begin
-                alu_src_b = imm;
-            end
-            ALUC_OPEXE: begin
-                alu_src_b = (ctrl.opcode == OP_OP || !ctrl.start) ? r._3.r2 : imm;
-                alu_f3 = ext_f3(r._1.inst);
-                alu_arith_bit = ext_arith_bit(r._1.inst) && (ctrl.opcode == OP_OP || ext_f3(r._1.inst) == FUNC_SR);
+        if (ctrl.alu_op) begin
+            alu_f3 = ext_f3(ir);
+            alu_arith_bit = ext_arith_bit(ir) && (opcode == OP_OP || ext_f3(ir) == FUNC_SR);
+            alu_branch = opcode == OP_BRANCH;
 `ifdef SHADD
-                alu_shadd = (ctrl.opcode == OP_OP && isShadd(r._1.inst));
+            alu_shadd = (opcode == OP_OP && isShadd(ir));
 `endif
-            end
-            ALUC_BRANCH_OP: begin
-                alu_src_b = r._3.r2;
-                alu_f3 = r._4.brf3;
-                alu_branch = 1; // enable branch operation
-            end
-            default: begin
-                // no operation, do nothing here.
-            end
-        endcase
+        end
     end
 
-    assign cntr_addr = 2'(ext_i_imm(r._1.inst));
+    assign cntr_addr = 2'(ext_i_imm(ir));
 
     // Register file
     always_comb begin
-        regnum = ctrl.rf_rs1? regnum_t'(ext_rs1(r._1.inst)) :
-                 ctrl.rf_rs2? regnum_t'(ext_rs2(r._1.inst)) :
-                 (ctrl.opcode == OP_LUI) ? regnum_t'(ext_rd(r._1.inst)) : r._4.rd;
-        
-        unique case (ctrl.opcode)
-            OP_LUI:  rfwrite_data = ext_u_imm(r._1.inst);
-            OP_JALR: rfwrite_data = r._3.r2;
-            OP_SYS:  rfwrite_data = r._3.cntr_data;
-            OP_LOAD: rfwrite_data = memread_data;
-            default: rfwrite_data = alu_out;
+        unique case (ctrl.rf_regnum_src)
+            X0:  regnum = 5'h0;
+            RS1: regnum = ext_rs1(ir);
+            RS2: regnum = ext_rs2(ir);
+            RD:  regnum = ext_rd(ir);
         endcase
+        
+        rfwrite_data = mux_src(ctrl.rf_src, 'x, pc_plus4, 'x, 'x, alu_out, cntr_data);
     end
 
     // Memory
     always_comb begin
-        memwrite_data = r._3.r2;
-        unique case (1'b1)
-            ctrl.opcode == OP_LOAD && ctrl.memop: begin
-                mem_size = mem_addr_t'(ext_f3(r._1.inst));
-                mem_addr = alu_out;
-            end
-            ctrl.opcode == OP_STORE && ctrl.memop: begin
-                mem_size = r._4.store_size;
-                mem_addr = r._2.store_address;
-            end
-            ctrl.alu_ctrl == ALUC_BRANCH_OP: begin
-                mem_size = MEM_W; 
-                mem_addr = (alu_out[0]) ? r._1.branch_target : {r.pc}; // branch target
-            end
-            default: begin
-                mem_size = MEM_W;
-                mem_addr = alu_out;
-            end
-        endcase
-    end
-
-    assign opcode = ext_opcode(ctrl.update_instr ? memread_data : r._1.inst);
-        
+        memwrite_data = r2;
+        mem_addr = mux_src(ctrl.maddr_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x);
+        mem_size = ctrl.memop ? mem_addr_t'(ext_f3(ir)) : MEM_W;
+    end        
 endmodule
