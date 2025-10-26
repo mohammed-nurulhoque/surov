@@ -253,6 +253,7 @@ int main(int argc, char *argv[]) {
         if (sim_time > 10000000) {
             fprintf(stderr, "SIM TIMEOUT\n");
             result = EXIT_FAILURE;
+            goto END_SIM;
         }
     }
 

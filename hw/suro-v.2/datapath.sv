@@ -100,39 +100,31 @@ module datapath (
     assign pc_plus4 = pc + 1;
     assign opcode = ext_opcode(ir);
 
-    // update state registers
-    word_t pc_next_w;
     always_ff @(posedge clk) begin
-        // reset
-        if (rst) begin
-            pc     <= word2pc(memread_data[31:0]);
-            ir     <= `INST_INIT;
-        end else begin
-            if (ctrl.set_ir) begin
-                ir <= memread_data;
-            end
+        if (rst)
+            ir <= {25'bx, OP_JALR};
+        else if (ctrl.set_ir && done)
+            ir <= memread_data;
 
-            pc_next_w = mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x);
-            if (ctrl.set_pc)
-                pc <= word2pc(pc_next_w);
-        end
-    end
-
-    always_ff @(posedge clk) begin
-        word_t r1_next = mux_src(ctrl.r1_src, 'x, 'x, memread_data, rfread_data, alu_out, 'x);
+        if (ctrl.set_pc)
+            pc <= word2pc(mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x));
         if (ctrl.set_r1)
-            r1 <= r1_next;
+            r1 <= mux_src(ctrl.r1_src, 'x, 'x, memread_data, rfread_data, alu_out, 'x);
         
-        if (ctrl.set_r2)
-            r2 <= rfread_data;
-        
+        if (ctrl.set_r2) begin
+            if (ctrl.r2_src)
+                r2 <= rfread_data;
+            else if (!alu_shadd) // FIXME a bit hacky
+                r2 <= {27'bx, alu_shamt_out};
+        end
         if (ctrl.set_pc2)
             pc2 <= word2pc(alu_out);
     end
 
     // ALU operation
-    word_t imm = ext_imm(ir);
+    word_t imm;
     always_comb begin
+        imm = ext_imm(ir);
         alu_src_a = ctrl.alu_a_r1 ? r1: pc2word(pc);
         alu_src_b = ctrl.alu_b_r2 ? r2: imm;
         
@@ -168,7 +160,7 @@ module datapath (
 
     // Memory
     always_comb begin
-        memwrite_data = r2;
+        memwrite_data = rfread_data;
         mem_addr = mux_src(ctrl.maddr_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x);
         mem_size = ctrl.memop ? mem_addr_t'(ext_f3(ir)) : MEM_W;
     end        

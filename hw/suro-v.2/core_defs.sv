@@ -19,6 +19,7 @@ typedef struct packed {
     logic set_r1;     // Whether to set register 1
     src_t r1_src;     // Source for register 1
     logic set_r2;     // Whether to set register 2
+    logic r2_src;     // Source for r2 is RF read, else ALU shamt_out
     logic set_pc;     // Whether to set program counter
     src_t pc_src;     // Source for program counter
     logic set_pc2;    // Whether to set pc2
@@ -27,8 +28,8 @@ typedef struct packed {
     regnum_src_t rf_regnum_src; // Source for register file write register number
     src_t maddr_src;  // Source for memory address
     logic memop;      // Memory operation (load/store)
-    logic alu_a_r1;  // Source for ALU operand A
-    logic alu_b_r2;  // Source for ALU operand B
+    logic alu_a_r1;   // Source for ALU operand A is r1, else pc
+    logic alu_b_r2;   // Source for ALU operand B is r2, else imm
     logic alu_op;     // Normal ALU operation of OP-OP OP-IMM or branch conditon
     logic start;      // 1st cycle of multicycle datapath operation
 } ctrl_t;
