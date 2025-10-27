@@ -1,8 +1,8 @@
 /* verilator lint_off CASEINCOMPLETE */
 function logic[1:0] fowarded_cycle(opcode_t opcode);
     unique case (opcode)
-        OP_IMM, OP_AUIPC: fowarded_cycle = 2;
-        OP_OP, OP_LOAD, OP_STORE: fowarded_cycle = 1;
+        OP_IMM: fowarded_cycle = 2;
+        OP_OP, OP_LOAD, OP_STORE, OP_JALR, OP_BRANCH: fowarded_cycle = 1;
         default: fowarded_cycle = 'x;
     endcase
 endfunction
@@ -139,13 +139,13 @@ module control (
             end
             2: begin
                 unique case (opcode)
-                    OP_OP, OP_IMM, OP_LOAD: ctrl.set_r1 = 1;
+                    OP_OP, OP_IMM, OP_LOAD, OP_LUI: ctrl.set_r1 = 1;
                     OP_AUIPC: ctrl.set_r1 = 0;
                     default: ctrl.set_r1 = 'x;
                 endcase
                 unique case (opcode)
                     OP_LOAD:   ctrl.r1_src = SRC_MEM;
-                    OP_OP, OP_IMM: ctrl.r1_src = SRC_ALU;
+                    OP_OP, OP_IMM, OP_LUI: ctrl.r1_src = SRC_ALU;
                     default:   ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });  // forwarding will need to handle this
                 endcase
                 ctrl.set_r2 = 1; // only for shift. datapath uses r2_src to decide.
@@ -159,7 +159,7 @@ module control (
                 unique case (opcode)
                     OP_LOAD:   ctrl.maddr_src = SRC_ALU;
                     OP_BRANCH: ctrl.maddr_src = SRC_PC2;
-                    OP_OP, OP_IMM, OP_AUIPC:   ctrl.maddr_src = SRC_PC_PLUS4;
+                    OP_OP, OP_IMM, OP_AUIPC, OP_LUI:   ctrl.maddr_src = SRC_PC_PLUS4;
                     default:   ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
                 endcase
                 ctrl.memop = 0;
@@ -192,8 +192,8 @@ module control (
                 endcase
             end
             3: begin
-                ctrl.set_r1 = 0;
-                ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });
+                ctrl.set_r1 = 1;
+                ctrl.r1_src = SRC_ALU;
                 ctrl.set_r2 = 0;
                 ctrl.r2_src = 'x;
                 ctrl.set_pc = 0;
@@ -202,7 +202,7 @@ module control (
                 ctrl.set_ir = 1;
                 ctrl.rf_src = SRC_ALU;
                 ctrl.rf_regnum_src = RD;
-                ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
+                ctrl.maddr_src = SRC_PC_PLUS4;
                 ctrl.memop = 0;
                 ctrl.alu_a_r1 = (opcode == OP_LOAD) ? 1 : 'X;
                 ctrl.alu_b_r2 = (opcode == OP_LOAD) ? 1 : 'X;;
@@ -230,7 +230,7 @@ module control (
     always_comb begin
         if (rst)
             mem_rden = 0;
-        else if (ctrl.set_ir)
+        else if (ctrl.set_ir && done)
             mem_rden = 1;
         else
             unique case (opcode)

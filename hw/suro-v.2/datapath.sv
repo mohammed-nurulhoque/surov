@@ -102,12 +102,13 @@ module datapath (
     assign pc_plus4 = pc + 1;
     assign opcode = ext_opcode(ir);
 
-    logic forwardible;
+    logic match_reg, op1, op2;
     always_comb begin
         next_opcode = ext_opcode(memread_data);
-        forward = ctrl.set_ir && done && (ext_rd(ir) == ext_rs1(memread_data)) && ext_rd(ir) != 0 &&
-                  (opcode == OP_OP || opcode == OP_IMM || opcode == OP_LOAD || opcode == OP_AUIPC) &&
-                  (next_opcode != OP_JAL && next_opcode != OP_LUI);
+        match_reg = (ext_rd(ir) == ext_rs1(memread_data)) && ext_rd(ir) != 0;
+        op1 = opcode == OP_OP || opcode == OP_IMM || opcode == OP_LOAD || opcode == OP_AUIPC || opcode == OP_LUI;
+        op2 = next_opcode != OP_JAL && next_opcode != OP_LUI && next_opcode != OP_AUIPC;
+        forward = ctrl.set_ir && done && match_reg && op1 && op2;
     end
 
     always_ff @(posedge clk) begin
@@ -115,12 +116,21 @@ module datapath (
             ir <= {25'bx, OP_JALR};
         else if (ctrl.set_ir && done)
             ir <= memread_data;
-        if (ctrl.set_pc)
-            pc <= forward ? pc_plus4 : word2pc(mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x));
+        if (forward)
+            pc <= pc_plus4;
+        else if (ctrl.set_pc)
+            pc <= word2pc(mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x));
 
-        if (ctrl.set_r1)
-            r1 <= mux_src(ctrl.r1_src, 'x, 'x, memread_data, rfread_data, alu_out, 'x);
-        
+        if (ctrl.set_r1) begin
+            unique case (ctrl.r1_src)
+                SRC_MEM: r1 <= memread_data;
+                SRC_RF:  r1 <= rfread_data;
+                SRC_ALU: r1 <= alu_out;
+                default: r1 <= 32'bx;
+            endcase
+            // r1 <= mux_src(ctrl.r1_src, 'x, 'x, memread_data, rfread_data, alu_out, 'x);
+        end
+
         if (ctrl.set_r2) begin
             if (ctrl.r2_src)
                 r2 <= rfread_data;
