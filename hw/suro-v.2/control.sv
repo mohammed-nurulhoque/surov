@@ -1,12 +1,21 @@
 /* verilator lint_off CASEINCOMPLETE */
+function logic[1:0] fowarded_cycle(opcode_t opcode);
+    unique case (opcode)
+        OP_IMM, OP_AUIPC: fowarded_cycle = 2;
+        OP_OP, OP_LOAD, OP_STORE: fowarded_cycle = 1;
+        default: fowarded_cycle = 'x;
+    endcase
+endfunction
 
 module control (
     input logic clk,
     input logic rst,
 
     input opcode_t opcode,
+    input opcode_t next_opcode,
     input logic done,
     input logic branch_taken,
+    input logic forward_taken,
 
     output ctrl_t ctrl,
     output logic rf_wren,
@@ -18,6 +27,9 @@ module control (
 );
     logic start;
     logic rst_latch;
+
+    logic[1:0] fcycle;
+    assign fcycle = fowarded_cycle(next_opcode);
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -37,18 +49,18 @@ module control (
                     end
                     1: begin
                         unique case (opcode)
-                            OP_STORE: cycle <= 0;
+                            OP_STORE: cycle <= forward_taken ? fcycle : 0;
                             default: cycle <= 2;
                         endcase
                     end
                     2: begin
                         unique case (opcode)
                             OP_LOAD: cycle <= 3;
-                            OP_BRANCH: cycle <= branch_taken ? 3 : 0;
-                            default: cycle <= 0;
+                            OP_BRANCH: cycle <= branch_taken ? 3 : (forward_taken ? fcycle : 0);
+                            default: cycle <= forward_taken ? fcycle : 0;
                         endcase
                     end
-                    3: cycle <= 0;
+                    3: cycle <= forward_taken ? fcycle : 0;
                 endcase
             end else begin
                 start <= 0;
@@ -62,7 +74,11 @@ module control (
         unique case (cycle)
             0: begin
                 ctrl.set_r1 = 1;
-                ctrl.r1_src = SRC_RF;
+                unique case (opcode)
+                    OP_AUIPC: ctrl.r1_src = SRC_ALU;
+                    OP_JAL:   ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });
+                    default:  ctrl.r1_src = SRC_RF;
+                endcase
                 ctrl.set_r2 = 0;
                 ctrl.r2_src = 'x;
                 ctrl.set_pc = 1;
@@ -122,7 +138,11 @@ module control (
                 ctrl.alu_op = 0;
             end
             2: begin
-                ctrl.set_r1 = 1;        // when forwarding, AUIPC should not set r1
+                unique case (opcode)
+                    OP_OP, OP_IMM, OP_LOAD: ctrl.set_r1 = 1;
+                    OP_AUIPC: ctrl.set_r1 = 0;
+                    default: ctrl.set_r1 = 'x;
+                endcase
                 unique case (opcode)
                     OP_LOAD:   ctrl.r1_src = SRC_MEM;
                     OP_OP, OP_IMM: ctrl.r1_src = SRC_ALU;
@@ -139,6 +159,7 @@ module control (
                 unique case (opcode)
                     OP_LOAD:   ctrl.maddr_src = SRC_ALU;
                     OP_BRANCH: ctrl.maddr_src = SRC_PC2;
+                    OP_OP, OP_IMM, OP_AUIPC:   ctrl.maddr_src = SRC_PC_PLUS4;
                     default:   ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
                 endcase
                 ctrl.memop = 0;
@@ -207,12 +228,16 @@ module control (
     end
 
     always_comb begin
-        unique case (opcode)
-            OP_JALR: mem_rden = cycle == 1;
-            OP_LOAD: mem_rden = ((cycle == 1) || (cycle == 2));
-            default: mem_rden = ctrl.set_pc;
-        endcase
-        if (rst) mem_rden = 0;
+        if (rst)
+            mem_rden = 0;
+        else if (ctrl.set_ir)
+            mem_rden = 1;
+        else
+            unique case (opcode)
+                OP_JALR: mem_rden = cycle == 1;
+                OP_LOAD: mem_rden = ((cycle == 1) || (cycle == 2));
+                default: mem_rden = ctrl.set_pc;
+            endcase
     end
     assign mem_wren = (!rst) && (opcode == OP_STORE) && (cycle == 1);
 

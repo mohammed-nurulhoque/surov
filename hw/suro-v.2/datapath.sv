@@ -47,8 +47,10 @@ module datapath (
     input ctrl_t ctrl,
     output logic done,
     output logic branch_taken,
+    output logic forward,
 
     output opcode_t opcode,
+    output opcode_t next_opcode,
 
     output regnum_t  regnum,
     input  word_t rfread_data,
@@ -100,14 +102,22 @@ module datapath (
     assign pc_plus4 = pc + 1;
     assign opcode = ext_opcode(ir);
 
+    logic forwardible;
+    always_comb begin
+        next_opcode = ext_opcode(memread_data);
+        forward = ctrl.set_ir && done && (ext_rd(ir) == ext_rs1(memread_data)) && ext_rd(ir) != 0 &&
+                  (opcode == OP_OP || opcode == OP_IMM || opcode == OP_LOAD || opcode == OP_AUIPC) &&
+                  (next_opcode != OP_JAL && next_opcode != OP_LUI);
+    end
+
     always_ff @(posedge clk) begin
         if (rst)
             ir <= {25'bx, OP_JALR};
         else if (ctrl.set_ir && done)
             ir <= memread_data;
-
         if (ctrl.set_pc)
-            pc <= word2pc(mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x));
+            pc <= forward ? pc_plus4 : word2pc(mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x));
+
         if (ctrl.set_r1)
             r1 <= mux_src(ctrl.r1_src, 'x, 'x, memread_data, rfread_data, alu_out, 'x);
         
