@@ -113,7 +113,7 @@ module datapath (
 
     always_ff @(posedge clk) begin
         if (rst)
-            ir <= {25'bx, OP_JALR};
+            ir[6:0] <= OP_JALR;
         else if (ctrl.set_ir && done)
             ir <= memread_data;
         if (forward)
@@ -134,8 +134,11 @@ module datapath (
         if (ctrl.set_r2) begin
             if (ctrl.r2_src)
                 r2 <= rfread_data;
-            else if (!alu_shadd) // FIXME a bit hacky
-                r2 <= {27'bx, alu_shamt_out};
+            else
+`ifdef SHADD
+            if (!alu_shadd) // FIXME a bit hacky
+`endif
+                r2[4:0] <= alu_shamt_out;
         end
         if (ctrl.set_pc2)
             pc2 <= word2pc(alu_out);

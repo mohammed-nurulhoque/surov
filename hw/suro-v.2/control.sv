@@ -113,7 +113,7 @@ module control (
                 end
             end
             1: begin
-                ctrl.set_r1 = 0; // if we forward rs2 from store to next instr, this needs to be set
+                ctrl.set_r1 = 0;
                 ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });
                 ctrl.set_r2 = 1;
                 ctrl.r2_src = 1; // RF read
