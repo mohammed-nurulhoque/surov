@@ -1,10 +1,10 @@
 
 function word_t pc2word(input pc_t pc);
-    return word_t'(pc) << 2;
+    return {pc, 2'b00};
 endfunction
 
 function pc_t word2pc(input word_t addr);
-    return pc_t'(addr >> 2);
+    return addr[31:2];
 endfunction
 
 function word_t mux_src(
@@ -115,20 +115,15 @@ module datapath (
         if (rst)
             ir[6:0] <= OP_JALR;
         else if (ctrl.set_ir && done)
-            ir <= memread_data;
+            ir <= ctrl.ir_src ? memread_data : r1;
+
         if (forward)
             pc <= pc_plus4;
         else if (ctrl.set_pc)
             pc <= word2pc(mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x));
 
         if (ctrl.set_r1) begin
-            unique case (ctrl.r1_src)
-                SRC_MEM: r1 <= memread_data;
-                SRC_RF:  r1 <= rfread_data;
-                SRC_ALU: r1 <= alu_out;
-                default: r1 <= 32'bx;
-            endcase
-            // r1 <= mux_src(ctrl.r1_src, 'x, 'x, memread_data, rfread_data, alu_out, 'x);
+            r1 <= mux_src(ctrl.r1_src, 'x, 'x, memread_data, rfread_data, alu_out, 'x);
         end
 
         if (ctrl.set_r2) begin
@@ -178,7 +173,7 @@ module datapath (
             RD:  regnum = ext_rd(ir);
         endcase
         
-        rfwrite_data = mux_src(ctrl.rf_src, 'x, pc_plus4, 'x, 'x, alu_out, cntr_data);
+        rfwrite_data = mux_src(ctrl.rf_src, 'x, pc_plus4, memread_data, 'x, alu_out, cntr_data);
     end
 
     // Memory

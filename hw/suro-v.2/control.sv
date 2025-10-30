@@ -55,7 +55,6 @@ module control (
                     end
                     2: begin
                         unique case (opcode)
-                            OP_LOAD: cycle <= 3;
                             OP_BRANCH: cycle <= branch_taken ? 3 : (forward_taken ? fcycle : 0);
                             default: cycle <= forward_taken ? fcycle : 0;
                         endcase
@@ -71,6 +70,7 @@ module control (
 
     always_comb begin
         ctrl.start = start;
+        ctrl.ir_src = 1;
         unique case (cycle)
             0: begin
                 ctrl.set_r1 = 1;
@@ -98,7 +98,7 @@ module control (
                 endcase
                 unique case (opcode)
                     OP_JAL: ctrl.maddr_src = SRC_ALU;
-                    OP_LOAD, OP_JALR: ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
+                    OP_JALR: ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
                     default: ctrl.maddr_src = SRC_PC_PLUS4;
                 endcase
                 ctrl.memop = 0;
@@ -113,8 +113,8 @@ module control (
                 end
             end
             1: begin
-                ctrl.set_r1 = 0;
-                ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });
+                ctrl.set_r1 = (opcode == OP_LOAD);
+                ctrl.r1_src = SRC_MEM;
                 ctrl.set_r2 = 1;
                 ctrl.r2_src = 1; // RF read
                 ctrl.set_pc = 0;
@@ -123,7 +123,7 @@ module control (
                 ctrl.set_ir = opcode == OP_STORE;
                 ctrl.rf_src = SRC_ALU;
                 unique case (opcode)
-                    OP_JALR, OP_LOAD: ctrl.rf_regnum_src = X0;
+                    OP_JALR: ctrl.rf_regnum_src = X0;
                     OP_OP, OP_STORE, OP_BRANCH:       ctrl.rf_regnum_src = RS2;
                     default: ctrl.rf_regnum_src = regnum_src_t'({ $bits(regnum_src_t){1'bx} });
                 endcase
@@ -153,13 +153,17 @@ module control (
                 ctrl.set_pc = ((opcode == OP_BRANCH && branch_taken) || opcode == OP_JALR);
                 ctrl.pc_src = SRC_PC2;
                 ctrl.set_pc2 = 0;
-                ctrl.set_ir = !(opcode == OP_LOAD || (opcode == OP_BRANCH && branch_taken));
-                ctrl.rf_src = SRC_ALU;
+                ctrl.set_ir = !(opcode == OP_BRANCH && branch_taken);
+                ctrl.ir_src = opcode != OP_LOAD;
+                unique case (opcode)
+                    OP_LOAD: ctrl.rf_src = SRC_MEM;
+                    OP_OP, OP_IMM, OP_LUI, OP_JALR: ctrl.rf_src = SRC_ALU;
+                    default: ctrl.rf_src = src_t'({ $bits(src_t){1'bx} });
+                endcase
                 ctrl.rf_regnum_src = RD;
                 unique case (opcode)
-                    OP_LOAD:   ctrl.maddr_src = SRC_ALU;
                     OP_BRANCH: ctrl.maddr_src = SRC_PC2;
-                    OP_OP, OP_IMM, OP_AUIPC, OP_LUI:   ctrl.maddr_src = SRC_PC_PLUS4;
+                    OP_OP, OP_IMM, OP_LOAD, OP_AUIPC, OP_LUI:   ctrl.maddr_src = SRC_PC_PLUS4;
                     default:   ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
                 endcase
                 ctrl.memop = 0;
@@ -179,7 +183,7 @@ module control (
                         ctrl.alu_b_r2 = 0;
                         ctrl.alu_op = 0;
                     end
-                    OP_LOAD, OP_JALR: begin
+                    OP_JALR: begin
                         ctrl.alu_a_r1 = 0;
                         ctrl.alu_b_r2 = 1;
                         ctrl.alu_op = 0;
@@ -192,20 +196,20 @@ module control (
                 endcase
             end
             3: begin
-                ctrl.set_r1 = 1;
-                ctrl.r1_src = SRC_ALU;
-                ctrl.set_r2 = 0;
+                ctrl.set_r1 = 'x;
+                ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });
+                ctrl.set_r2 = 'x;
                 ctrl.r2_src = 'x;
                 ctrl.set_pc = 0;
                 ctrl.pc_src = src_t'({ $bits(src_t){1'bx} });
-                ctrl.set_pc2 = 0;
+                ctrl.set_pc2 = 'x;
                 ctrl.set_ir = 1;
                 ctrl.rf_src = SRC_ALU;
-                ctrl.rf_regnum_src = RD;
+                ctrl.rf_regnum_src = regnum_src_t'({ $bits(src_t){1'bx} });
                 ctrl.maddr_src = SRC_PC_PLUS4;
                 ctrl.memop = 0;
-                ctrl.alu_a_r1 = (opcode == OP_LOAD) ? 1 : 'X;
-                ctrl.alu_b_r2 = (opcode == OP_LOAD) ? 1 : 'X;;
+                ctrl.alu_a_r1 = 'X;
+                ctrl.alu_b_r2 = 'X;;
                 ctrl.alu_op = 0;
             end
         endcase
@@ -222,7 +226,6 @@ module control (
         unique case (opcode)
             OP_STORE, OP_BRANCH, OP_FENCE: rf_wren = 0;
             OP_JAL, OP_AUIPC, OP_SYS: rf_wren = cycle == 0;
-            OP_LOAD: rf_wren = cycle == 3;
             default: rf_wren = cycle == 2;
         endcase
     end
@@ -235,7 +238,7 @@ module control (
         else
             unique case (opcode)
                 OP_JALR: mem_rden = cycle == 1;
-                OP_LOAD: mem_rden = ((cycle == 1) || (cycle == 2));
+                OP_LOAD: mem_rden = ((cycle == 0) || (cycle == 1));
                 default: mem_rden = ctrl.set_pc;
             endcase
     end
