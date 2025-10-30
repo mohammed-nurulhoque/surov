@@ -104,8 +104,8 @@ module datapath (
 
     logic match_reg, op1, op2;
     always_comb begin
-        next_opcode = ext_opcode(memread_data);
-        match_reg = (ext_rd(ir) == ext_rs1(memread_data)) && ext_rd(ir) != 0;
+        next_opcode = ext_opcode(ctrl.ir_src ? memread_data: r1);
+        match_reg = (ext_rd(ir) == ext_rs1(ctrl.ir_src ? memread_data: r1)) && ext_rd(ir) != 0;
         op1 = opcode == OP_OP || opcode == OP_IMM || opcode == OP_LOAD || opcode == OP_AUIPC || opcode == OP_LUI;
         op2 = next_opcode != OP_JAL && next_opcode != OP_LUI && next_opcode != OP_AUIPC;
         forward = ctrl.set_ir && done && match_reg && op1 && op2;

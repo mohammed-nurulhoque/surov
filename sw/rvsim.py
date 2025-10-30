@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys, subprocess
+from collections import Counter
 from enum import Enum
 from ctypes import c_int32, c_uint32, c_int8, c_int16
 
@@ -127,7 +128,7 @@ inst_cycles = {
     # All cycle functions have the signature: fn(instr, rs1, rs2, rd, rd_prev) -> int
     OPC.opop:  (lambda instr, rs1, rs2, rd, rd_prev: op_cycles(instr, rs1, rs2, rd, rd_prev)),
     OPC.opimm: (lambda instr, rs1, rs2, rd, rd_prev: op_cycles(instr, rs1, rs2, rd, rd_prev)),
-    OPC.load:  (lambda instr, *_: 4),
+    OPC.load:  (lambda instr, *_: 3),
     OPC.store: (lambda instr, *_: 2),
     OPC.br:    (lambda instr, *_: 4),
     OPC.jal:   (lambda instr, *_: 2),
@@ -146,8 +147,10 @@ class Cntrs:
         self.retired = 0
         self.jalr = 0
         self.jalr0 = 0
+        # counts per top-level opcode (OPC enum names)
+        self.op_counts = Counter()
 
-    def update(self, instr: int, rs1val: int = None, rs2val: int = None, rdval: int = None, rd_prev: int = None, br_untaken: bool = None) -> None:
+    def update(self, instr: int, rs1val: int = None, rs2val: int = None, rdval: int = None, rd_prev: int = None, br_hit: bool = None) -> None:
         """Update counters for an executed instruction.
 
         The trace arguments rs1, rs2, rd are the runtime values (or None).
@@ -158,11 +161,17 @@ class Cntrs:
         cycles = inst_cycles[op](instr, rs1val, rs2val, rdval, rd_prev)
         if rs1(instr) == rd_prev or rs1(instr) == 0:
             cycles -= 1
-        if br_untaken:
+        if br_hit:
             cycles -= 1
         self.time += cycles
         self.cycle += cycles
         self.retired += 1
+        # track opcode-level histogram
+        try:
+            self.op_counts[op.name] += 1
+        except Exception:
+            # fallback if op doesn't have a name (shouldn't happen)
+            self.op_counts[str(op)] += 1
         if op == OPC.jalr:
             self.jalr += 1
             if i_imm(instr) == 0:
@@ -174,6 +183,14 @@ class Cntrs:
         sys.stderr.write(f'insn retired: {self.retired}\n')
         sys.stderr.write(f'jalr: {self.jalr}\n')
         sys.stderr.write(f'jalr imm=0: {self.jalr0}\n')
+        # print per-opcode instruction counts
+        if self.retired:
+            sys.stderr.write('\nInstruction counts by opcode:\n')
+            for opname, cnt in sorted(self.op_counts.items(), key=lambda x: -x[1]):
+                pct = cnt / self.retired * 100
+                sys.stderr.write(f'  {opname:<8} {cnt:8d}   {pct:6.2f}%\n')
+        else:
+            sys.stderr.write('\nNo instructions retired.\n')
 
 class CPU:
     def __init__(self, img: bytes, base: int, pc_init: int) -> None:
@@ -372,7 +389,7 @@ class CPU:
                 sys.stderr.write(f'\n Unrecognized instruction :{instr}\n')
         # pass previous destination register (may be None) so cycle models
         # can detect rs1==rd_prev shortcuts
-        self.cntrs.update(instr, rs1val, rs2val, rdval, self.prev_rd, (OPC(opcode(instr)) == OPC.br) and (next_pc == self.pc + 4))
+        self.cntrs.update(instr, rs1val, rs2val, rdval, self.prev_rd, (OPC(opcode(instr)) == OPC.br) and ((next_pc == self.pc + 4) == (ui(self.pc + imm) > self.pc)))
 
         if rdval is not None and REG(rd(instr)) != REG.x0:
             if type(rdval) is not int:

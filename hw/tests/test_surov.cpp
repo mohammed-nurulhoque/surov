@@ -181,7 +181,7 @@ int main(int argc, char *argv[]) {
             return (r[4U] << (32-regaddr_width)) | (r[3U] >> regaddr_width);
         };
 
-        unsigned pc = dut.surov->dp->pc;
+        unsigned pc = dut.surov->dp->pc << 2;
         unsigned inst = dut.surov->dp->ir;
 
         if (dut.surov->cycle == 0) {
@@ -204,7 +204,7 @@ int main(int argc, char *argv[]) {
 #endif
             }
         } catch (std::out_of_range &e) {
-            fprintf(stderr, "Caught exception: %s\n", e.what());
+            fprintf(stderr, "pc: %08x addr: %08x -- Caught exception: %s\n", pc, dut.mem_addr, e.what());
             result = EXIT_FAILURE;
             goto END_SIM;
         }

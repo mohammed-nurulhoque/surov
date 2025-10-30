@@ -3,8 +3,8 @@
 # Defaults
 VERILOG_FILE="${1:-synth.v}"
 TOP_MODULE="${2:-surov}"
-SDC_FILE="cpu.sdc"
-LIB_FILE="lib/NangateOpenCellLibrary_typical.lib"
+SDC_FILE="$(dirname "$0")/cpu.sdc"
+LIB_FILE="$(dirname "$0")/lib/NangateOpenCellLibrary_typical.lib"
 
 # Temporary STA script
 STA_SCRIPT=$(mktemp --suffix .tcl)
