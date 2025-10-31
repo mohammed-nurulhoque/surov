@@ -43,6 +43,40 @@ void print_help(char *bin, int ecode) {
     exit(ecode);
 }
 
+/// Encode jal x0, imm.
+static inline uint32_t encode_jal_x0_from_offset(int64_t imm)
+{
+    if (imm & 0x1) {
+        // Unaligned to 2 bytes
+        fprintf(stderr, "encode_jal_x0_from_offset: unaligned offset: %lld\n", (long long)imm);
+        abort();
+    }
+
+    // imm must fit in signed 20-bit value
+    const int64_t min_imm = -(1LL << 20);
+    const int64_t max_imm =  (1LL << 20) - 1;
+    if (imm < min_imm || imm > max_imm) {
+        fprintf(stderr, "encode_jal_x0_from_offset: offset out of range: %lld\n", (long long)imm);
+        abort();
+    }
+
+    uint32_t inst = 0;
+    // inst[31] = imm[20]
+    inst |= ((imm >> 20) & 0x1) << 31;
+    // inst[30:21] = imm[10:1]
+    inst |= ((imm >> 1) & 0x3FF) << 21;
+    // inst[20] = imm[11]
+    inst |= ((imm >> 11) & 0x1) << 20;
+    // inst[19:12] = imm[19:12]
+    inst |= ((imm >> 12) & 0xFF) << 12;
+
+    // rd = x0 -> bits [11:7] = 0
+    // opcode for JAL = 0b1101111 = 0x6f
+    inst |= 0x6f;
+
+    return inst;
+}
+
 class Memory {
     std::vector<char> mem;
     size_t start;
@@ -153,9 +187,11 @@ int main(int argc, char *argv[]) {
 
     dmem.flash(argv[1], 0x3000);
 
+    uint32_t jump_to_start_ir = encode_jal_x0_from_offset(start_addr);
+
     m_trace->dump(sim_time++);
     dut.rst = 1;
-    dut.memread_data = start_addr;
+    dut.memread_data = jump_to_start_ir;
     dut.clk = 0;
     dut.eval();
     m_trace->dump(sim_time++);

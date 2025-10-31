@@ -65,7 +65,7 @@ module datapath (
     output word_t memwrite_data
 );
     // state registers
-    word_t r1, r2, ir /*verilator public*/;
+    word_t r1, r2, ir /*verilator public*/, ir2;
     pc_t pc /*verilator public*/;
     pc_t pc2;
 
@@ -112,13 +112,13 @@ module datapath (
     end
 
     always_ff @(posedge clk) begin
-        if (rst)
-            ir[6:0] <= OP_JALR;
-        else if (ctrl.set_ir && done)
-            ir <= ctrl.ir_src ? memread_data : r1;
+        if (ctrl.set_ir)
+            ir <= ctrl.ir_src ? memread_data : ir2;
 
-        if (forward)
-            pc <= pc_plus4;
+        ir2 <= memread_data;
+
+        if (rst)
+            pc <= 0;
         else if (ctrl.set_pc)
             pc <= word2pc(mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x));
 

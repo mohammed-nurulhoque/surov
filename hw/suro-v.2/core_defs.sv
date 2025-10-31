@@ -24,7 +24,7 @@ typedef struct packed {
     src_t pc_src;     // Source for program counter
     logic set_pc2;    // Whether to set pc2
     logic set_ir;     // Whether to set instruction register
-    logic ir_src;     // ir source is memread_data, else r1
+    logic ir_src;     // ir source is memread_data, else ir2
     src_t rf_src;     // Source for register file write data
     regnum_src_t rf_regnum_src; // Source for register file write register number
     src_t maddr_src;  // Source for memory address

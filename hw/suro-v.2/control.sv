@@ -26,18 +26,15 @@ module control (
     output logic trap
 );
     logic start;
-    logic rst_latch;
 
     logic[1:0] fcycle;
     assign fcycle = fowarded_cycle(next_opcode);
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            cycle <= 1;
+            cycle <= 0;
             start <= 1;
-            rst_latch <= 1;
         end else begin
-            rst_latch <= 0;
             if (done) begin
                 start <= 1;
                 unique case (cycle)
@@ -54,12 +51,8 @@ module control (
                         endcase
                     end
                     2: begin
-                        unique case (opcode)
-                            OP_BRANCH: cycle <= branch_taken ? 3 : (forward_taken ? fcycle : 0);
-                            default: cycle <= forward_taken ? fcycle : 0;
-                        endcase
+                        cycle <= forward_taken ? fcycle : 0;
                     end
-                    3: cycle <= forward_taken ? fcycle : 0;
                 endcase
             end else begin
                 start <= 0;
@@ -70,7 +63,6 @@ module control (
 
     always_comb begin
         ctrl.start = start;
-        ctrl.ir_src = 1;
         unique case (cycle)
             0: begin
                 ctrl.set_r1 = 1;
@@ -85,6 +77,7 @@ module control (
                 ctrl.pc_src = (opcode == OP_JAL) ? SRC_ALU : SRC_PC_PLUS4;
                 ctrl.set_pc2 = 0;
                 ctrl.set_ir = 0;
+                ctrl.ir_src = 1;
                 unique case (opcode)
                     OP_JAL:   ctrl.rf_src = SRC_PC_PLUS4;
                     OP_AUIPC: ctrl.rf_src = SRC_ALU;
@@ -113,14 +106,15 @@ module control (
                 end
             end
             1: begin
-                ctrl.set_r1 = (opcode == OP_LOAD);
-                ctrl.r1_src = SRC_MEM;
+                ctrl.set_r1 = 0;
+                ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });
                 ctrl.set_r2 = 1;
                 ctrl.r2_src = 1; // RF read
                 ctrl.set_pc = 0;
                 ctrl.pc_src = src_t'({ $bits(src_t){1'bx} });
                 ctrl.set_pc2 = (opcode == OP_BRANCH || opcode == OP_JALR);
                 ctrl.set_ir = opcode == OP_STORE;
+                ctrl.ir_src = 1;
                 ctrl.rf_src = SRC_ALU;
                 unique case (opcode)
                     OP_JALR: ctrl.rf_regnum_src = X0;
@@ -134,7 +128,7 @@ module control (
                     OP_JALR, OP_LOAD, OP_STORE: ctrl.alu_a_r1 = 1;
                     default:                    ctrl.alu_a_r1 = 'x;
                 endcase
-                ctrl.alu_b_r2 = rst_latch;
+                ctrl.alu_b_r2 = 0;
                 ctrl.alu_op = 0;
             end
             2: begin
@@ -150,11 +144,11 @@ module control (
                 endcase
                 ctrl.set_r2 = 1; // only for shift. datapath uses r2_src to decide.
                 ctrl.r2_src = 0; // shamt_out
-                ctrl.set_pc = ((opcode == OP_BRANCH && branch_taken) || opcode == OP_JALR);
-                ctrl.pc_src = SRC_PC2;
+                ctrl.set_pc = forward_taken | (((opcode == OP_BRANCH) & branch_taken) | opcode == OP_JALR);
+                ctrl.pc_src = forward_taken ? SRC_PC_PLUS4 : SRC_PC2;
                 ctrl.set_pc2 = 0;
-                ctrl.set_ir = !(opcode == OP_BRANCH && branch_taken);
-                ctrl.ir_src = opcode != OP_LOAD;
+                ctrl.set_ir = done;
+                ctrl.ir_src = !((opcode == OP_LOAD) | (opcode == OP_BRANCH & !branch_taken));
                 unique case (opcode)
                     OP_LOAD: ctrl.rf_src = SRC_MEM;
                     OP_OP, OP_IMM, OP_LUI, OP_JALR: ctrl.rf_src = SRC_ALU;
@@ -162,7 +156,6 @@ module control (
                 endcase
                 ctrl.rf_regnum_src = RD;
                 unique case (opcode)
-                    OP_BRANCH: ctrl.maddr_src = SRC_PC2;
                     OP_OP, OP_IMM, OP_LOAD, OP_AUIPC, OP_LUI:   ctrl.maddr_src = SRC_PC_PLUS4;
                     default:   ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
                 endcase
@@ -191,33 +184,17 @@ module control (
                     default: begin
                         ctrl.alu_a_r1 = 'x;
                         ctrl.alu_b_r2 = 'x;
-                        ctrl.alu_op = 'x;
+                        ctrl.alu_op = 0; // can't do 'x because we need to ensure done is asserted.
                     end
                 endcase
             end
             3: begin
-                ctrl.set_r1 = 'x;
-                ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });
-                ctrl.set_r2 = 'x;
-                ctrl.r2_src = 'x;
-                ctrl.set_pc = 0;
-                ctrl.pc_src = src_t'({ $bits(src_t){1'bx} });
-                ctrl.set_pc2 = 'x;
-                ctrl.set_ir = 1;
-                ctrl.rf_src = SRC_ALU;
-                ctrl.rf_regnum_src = regnum_src_t'({ $bits(src_t){1'bx} });
-                ctrl.maddr_src = SRC_PC_PLUS4;
-                ctrl.memop = 0;
-                ctrl.alu_a_r1 = 'X;
-                ctrl.alu_b_r2 = 'X;;
-                ctrl.alu_op = 0;
+                ctrl = ctrl_t'({ $bits(ctrl_t){1'bx} });
             end
         endcase
         if (rst) begin
-            ctrl.set_r1 = 1;
-            ctrl.r1_src = SRC_MEM;
-            ctrl.set_r2 = 1;
-            ctrl.rf_regnum_src = X0;
+            ctrl.set_ir = 1;
+            ctrl.ir_src = 1;
         end
     end
 
@@ -233,12 +210,12 @@ module control (
     always_comb begin
         if (rst)
             mem_rden = 0;
-        else if (ctrl.set_ir && done)
+        else if (forward_taken)
             mem_rden = 1;
         else
             unique case (opcode)
                 OP_JALR: mem_rden = cycle == 1;
-                OP_LOAD: mem_rden = ((cycle == 0) || (cycle == 1));
+                OP_LOAD, OP_BRANCH: mem_rden = ((cycle == 0) || (cycle == 1));
                 default: mem_rden = ctrl.set_pc;
             endcase
     end
