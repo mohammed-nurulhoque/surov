@@ -37,7 +37,6 @@ module alu3 #(
     typedef logic[WSHAM-1:0] shamt_t;
     shamt_t shamt;
     word_t shifter_out;
-    logic shifter_done;
     
     always_comb begin
         shamt = 0;
@@ -59,7 +58,6 @@ module alu3 #(
         .sham_o(shamt_out)
     );
 
-    logic adder_cout;
     adderOp_t adder_op;
     word_t adder_out;
 
@@ -81,7 +79,7 @@ module alu3 #(
         .src_a(src_a),
         .src_b(src_b),
         .out(adder_out),
-        .cout(adder_cout)
+        .cout('x)
     );
 
     always_comb begin

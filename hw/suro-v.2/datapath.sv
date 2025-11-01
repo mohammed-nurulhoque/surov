@@ -96,19 +96,28 @@ module datapath (
         .done(done)
     );
 
-    assign branch_taken = (opcode == OP_BRANCH) && ctrl.alu_op && alu_out[0];
+    assign branch_taken = (opcode == OP_BRANCH) && ctrl.alu_op && alu.adder_out[0];
 
     pc_t pc_plus4;
     assign pc_plus4 = pc + 1;
     assign opcode = ext_opcode(ir);
 
-    logic match_reg, op1, op2;
+    logic match_reg;
+    logic[127:0] op1map, op2map; 
     always_comb begin
+        op1map = 0;
+        op2map = ~128'b0;
+        op1map[OP_OP]   = 1;
+        op1map[OP_IMM]  = 1;
+        op1map[OP_LOAD] = 1;
+        op1map[OP_AUIPC]= 1;
+        op1map[OP_LUI]  = 1;
+        op2map[OP_JAL]  = 0;
+        op2map[OP_LUI]  = 0;
+        op2map[OP_AUIPC]= 0;
         next_opcode = ext_opcode(ctrl.ir_src ? memread_data: r1);
         match_reg = (ext_rd(ir) == ext_rs1(ctrl.ir_src ? memread_data: r1)) && ext_rd(ir) != 0;
-        op1 = opcode == OP_OP || opcode == OP_IMM || opcode == OP_LOAD || opcode == OP_AUIPC || opcode == OP_LUI;
-        op2 = next_opcode != OP_JAL && next_opcode != OP_LUI && next_opcode != OP_AUIPC;
-        forward = ctrl.set_ir && done && match_reg && op1 && op2;
+        forward = ctrl.set_ir && match_reg && op1map[opcode] && op2map[next_opcode];
     end
 
     always_ff @(posedge clk) begin
@@ -120,10 +129,15 @@ module datapath (
         if (rst)
             pc <= 0;
         else if (ctrl.set_pc)
-            pc <= word2pc(mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x));
+            pc <= word2pc(mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu.adder_out, 'x));
 
         if (ctrl.set_r1) begin
-            r1 <= mux_src(ctrl.r1_src, 'x, 'x, memread_data, rfread_data, alu_out, 'x);
+            unique case (ctrl.r1_src)
+                SRC_MEM: r1 <= memread_data;
+                SRC_RF:  r1 <= rfread_data;
+                SRC_ALU: r1 <= alu_out;
+                default: r1 <= 'x;
+            endcase
         end
 
         if (ctrl.set_r2) begin
@@ -136,7 +150,7 @@ module datapath (
                 r2[4:0] <= alu_shamt_out;
         end
         if (ctrl.set_pc2)
-            pc2 <= word2pc(alu_out);
+            pc2 <= word2pc(alu.adder_out);
     end
 
     // ALU operation
@@ -172,14 +186,20 @@ module datapath (
             RS2: regnum = ext_rs2(ir);
             RD:  regnum = ext_rd(ir);
         endcase
-        
-        rfwrite_data = mux_src(ctrl.rf_src, 'x, pc_plus4, memread_data, 'x, alu_out, cntr_data);
+        case (ctrl.rf_src)
+            SRC_PC_PLUS4: rfwrite_data = pc2word(pc_plus4);
+            SRC_MEM:      rfwrite_data = memread_data;
+            SRC_ALU:      rfwrite_data = alu_out;
+            SRC_CNTR:     rfwrite_data = cntr_data;
+            default:      rfwrite_data = 'x;
+        endcase
+        // rfwrite_data = mux_src(ctrl.rf_src, 'x, pc_plus4, memread_data, 'x, alu_out, cntr_data);
     end
 
     // Memory
     always_comb begin
         memwrite_data = rfread_data;
-        mem_addr = mux_src(ctrl.maddr_src, pc2, pc_plus4, 'x, 'x, alu_out, 'x);
+        mem_addr = mux_src(ctrl.maddr_src, pc2, pc_plus4, 'x, 'x, alu.adder_out, 'x);
         mem_size = ctrl.memop ? mem_addr_t'(ext_f3(ir)) : MEM_W;
     end        
 endmodule

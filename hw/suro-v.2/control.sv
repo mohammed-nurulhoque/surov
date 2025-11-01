@@ -216,7 +216,7 @@ module control (
             unique case (opcode)
                 OP_JALR: mem_rden = cycle == 1;
                 OP_LOAD, OP_BRANCH: mem_rden = ((cycle == 0) || (cycle == 1));
-                default: mem_rden = ctrl.set_pc;
+                default: mem_rden = cycle == 0;
             endcase
     end
     assign mem_wren = (!rst) && (opcode == OP_STORE) && (cycle == 1);
