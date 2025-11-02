@@ -99,7 +99,7 @@ module alu3 #(
              || (shadd && start)
 `endif
             ) out = shifter_out;
-        if (is_logical) begin
+        else if (is_logical) begin
             unique case (f3)
                 FUNC_AND: out = src_a & src_b;
                 FUNC_OR:  out = src_a | src_b;

@@ -155,10 +155,7 @@ module control (
                     default: ctrl.rf_src = src_t'({ $bits(src_t){1'bx} });
                 endcase
                 ctrl.rf_regnum_src = RD;
-                unique case (opcode)
-                    OP_OP, OP_IMM, OP_LOAD, OP_AUIPC, OP_LUI:   ctrl.maddr_src = SRC_PC_PLUS4;
-                    default:   ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
-                endcase
+                ctrl.maddr_src = SRC_PC_PLUS4;
                 ctrl.memop = 0;
                 unique case (opcode)
                     OP_IMM:    begin
@@ -208,16 +205,12 @@ module control (
     end
 
     always_comb begin
-        if (rst)
-            mem_rden = 0;
-        else if (forward_taken)
-            mem_rden = 1;
-        else
-            unique case (opcode)
-                OP_JALR: mem_rden = cycle == 1;
-                OP_LOAD, OP_BRANCH: mem_rden = ((cycle == 0) || (cycle == 1));
-                default: mem_rden = cycle == 0;
-            endcase
+        unique case (cycle)
+            0: mem_rden = 1;
+            1: mem_rden = (opcode == OP_JALR) | (opcode == OP_LOAD) | (opcode == OP_BRANCH);
+            2: mem_rden = 1;
+            3: mem_rden = 'x;
+        endcase
     end
     assign mem_wren = (!rst) && (opcode == OP_STORE) && (cycle == 1);
 

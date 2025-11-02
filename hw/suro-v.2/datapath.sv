@@ -7,25 +7,6 @@ function pc_t word2pc(input word_t addr);
     return addr[31:2];
 endfunction
 
-function word_t mux_src(
-    src_t src,
-    pc_t pc2,
-    pc_t pc_plus4,
-    word_t memout,
-    word_t rfout,
-    word_t aluout,
-    word_t cntrdata);
-    case (src)
-        SRC_PC2:   return pc2word(pc2);
-        SRC_MEM:   return memout;
-        SRC_RF:    return rfout;
-        SRC_ALU:   return aluout;
-        SRC_PC_PLUS4: return pc2word(pc_plus4);
-        SRC_CNTR:  return cntrdata;
-        default:   return 'x; // invalid source
-    endcase
-endfunction
-
 function word_t ext_imm(input word_t ir);
     unique case (ext_opcode(ir))
         OP_LUI:    return ext_u_imm(ir);
@@ -128,8 +109,14 @@ module datapath (
 
         if (rst)
             pc <= 0;
-        else if (ctrl.set_pc)
-            pc <= word2pc(mux_src(ctrl.pc_src, pc2, pc_plus4, 'x, 'x, alu.adder_out, 'x));
+        else if (ctrl.set_pc) begin
+            unique case (ctrl.pc_src)
+            SRC_PC2:       pc <= pc2;
+            SRC_PC_PLUS4:  pc <= pc_plus4;
+            SRC_ALU:       pc <= word2pc(alu.adder_out);
+            default:       pc <= 'x;
+            endcase
+        end
 
         if (ctrl.set_r1) begin
             unique case (ctrl.r1_src)
@@ -193,13 +180,17 @@ module datapath (
             SRC_CNTR:     rfwrite_data = cntr_data;
             default:      rfwrite_data = 'x;
         endcase
-        // rfwrite_data = mux_src(ctrl.rf_src, 'x, pc_plus4, memread_data, 'x, alu_out, cntr_data);
     end
 
     // Memory
     always_comb begin
+        unique case (ctrl.maddr_src)
+            SRC_PC2:       mem_addr = pc2word(pc2);
+            SRC_PC_PLUS4:  mem_addr = pc2word(pc_plus4);
+            SRC_ALU:       mem_addr = alu.adder_out;
+            default:       mem_addr = 'x;
+        endcase
         memwrite_data = rfread_data;
-        mem_addr = mux_src(ctrl.maddr_src, pc2, pc_plus4, 'x, 'x, alu.adder_out, 'x);
         mem_size = ctrl.memop ? mem_addr_t'(ext_f3(ir)) : MEM_W;
     end        
 endmodule
