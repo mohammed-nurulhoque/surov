@@ -105,7 +105,8 @@ module datapath (
         if (ctrl.set_ir)
             ir <= ctrl.ir_src ? memread_data : ir2;
 
-        ir2 <= memread_data;
+        if (ctrl.set_ir2)
+            ir2 <= memread_data;
 
         if (rst)
             pc <= 0;

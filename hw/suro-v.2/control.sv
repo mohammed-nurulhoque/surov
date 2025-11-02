@@ -78,6 +78,7 @@ module control (
                 ctrl.set_pc2 = 0;
                 ctrl.set_ir = 0;
                 ctrl.ir_src = 1;
+                ctrl.set_ir2 = 'x;
                 unique case (opcode)
                     OP_JAL:   ctrl.rf_src = SRC_PC_PLUS4;
                     OP_AUIPC: ctrl.rf_src = SRC_ALU;
@@ -116,6 +117,7 @@ module control (
                 ctrl.set_ir = opcode == OP_STORE;
                 ctrl.ir_src = 1;
                 ctrl.rf_src = SRC_ALU;
+                ctrl.set_ir2 = 1;
                 unique case (opcode)
                     OP_JALR: ctrl.rf_regnum_src = X0;
                     OP_OP, OP_STORE, OP_BRANCH:       ctrl.rf_regnum_src = RS2;
@@ -148,7 +150,8 @@ module control (
                 ctrl.pc_src = forward_taken ? SRC_PC_PLUS4 : SRC_PC2;
                 ctrl.set_pc2 = 0;
                 ctrl.set_ir = done;
-                ctrl.ir_src = !((opcode == OP_LOAD) | (opcode == OP_BRANCH & !branch_taken));
+                ctrl.ir_src = !(!start | (opcode == OP_LOAD) | (opcode == OP_BRANCH & !branch_taken));
+                ctrl.set_ir2 = start;
                 unique case (opcode)
                     OP_LOAD: ctrl.rf_src = SRC_MEM;
                     OP_OP, OP_IMM, OP_LUI, OP_JALR: ctrl.rf_src = SRC_ALU;
@@ -212,6 +215,6 @@ module control (
             3: mem_rden = 'x;
         endcase
     end
-    assign mem_wren = (!rst) && (opcode == OP_STORE) && (cycle == 1);
+    assign mem_wren = (opcode == OP_STORE) && (cycle == 1);
 
 endmodule
