@@ -36,15 +36,18 @@ Quick PPA using openroad-flow-script nangate45.
 |----- |----------|-------|-----------|---------------- | --- |
 | surov | 0.015 | 750 | 0.591 | 27 | 3.9 |
 | surov-e | 0.010 | 750 | 0.559 | 17 | 2.4 | 
+| picorv32 | 0.020 | 1200 | 0.494 | 47 | 4.1 | 
 
 
 ## How to Run
 
-```
+```bash
 cd hw/
 
 make # verilator simulator
 ./Vsurov <path-to-bin-file> [bin-start e.g. 0x1000] [exe-start-address e.g. 0x1008]
+# e.g.
+./Vsurov ../sw/dhrystone.bin 0x100b4 0x121a8
 
 make synth # run yosys + sta
 ```
