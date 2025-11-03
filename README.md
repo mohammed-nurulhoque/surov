@@ -4,16 +4,16 @@ A tiny RISC-V processor that implements RV32I/E + Zicntr* + Zba. Uses a multi-cy
 
 Passes RISCV ISA tests rv32ui-p* and rv32uzba-p*.
 
-Achives 0.568 DMIPS/MHz for I variant and 0.479 for E variant.
+Achives 0.591 DMIPS/MHz for I variant and 0.559 for E variant.
 
 *Zicntr time returns cycle count, no higher-bit counters.
 
 ## Architecture
 
 - **ISA**: RV32I + Zicntr (cycle counter only) + Zba. Fences are NOP.
-- **Pipeline**: Multi-cycle, 2-4 cycles per instruction. Next instruction is prefetched during each instruction. 
+- **Pipeline**: Multi-cycle, 1-3 cycles per instruction. Next instruction is prefetched during each instruction. 
 - **Shifter**: Multi-stage, up to 3 bits per cycle. Right shifts take 1 extra cycle. All 3 kinds of shifts mux the same shifting circuit.
-- **Adder** a single adder mux'ed for add/sub/compares, next pc calculation and load/store offsets. A separate adder shared between cycle/instret CSRs.
+- **Adder** a single adder mux'ed for add/sub/compares, pc+imm and load/store offsets.
 
 ### Instruction Timing
 
@@ -27,26 +27,16 @@ Achives 0.568 DMIPS/MHz for I variant and 0.479 for E variant.
 | JAL            | 2      |
 | JALR           | 3      |
 
-
 ![suro-v block diagram](surov2.svg)
 ## Performance
 
 Quick PPA using openroad-flow-script nangate45.
 
-| Config | DMIPS/MHz | Area (mm²/1000) | Freq (MHz)<sup>1</sup> | Power (mW) | DMIPS/MHz/mm2 | DMIPS/mm2 | DMIPS/W
-|--------|-----------|-----------------|------------|------------|-----------| --- | ---
-| suro-v i_zba | 0.568| 14.96 | 618 | 41.6 | 33.3 | 20600 | 7400 |
-| suro-v e_zba | 0.479 | 10.22 | 596 | 29.2 | 46.9 | 27900 | 9777 |
-| suro-v e_zba latch_rf | 0.479 | 8.73 | 563 | 31.6 | 54.9 | 30900 | 8534 |
-| VexRiscv<sup>2</sup>   | 0.82 | 24.34 | 794 | 71.2 | 33.7 | 26750 | 9140
-| picorv32<sup>3</sup>  | < 0.516 | 21.4 | 849 | 94.2 | < 24.11 | < 20500 | < 4650
-| picorv32e<sup>3</sup> | << 0.516 | 15.3 | 905 | 63.0 | << 33.7 | << 30500 | << 7412
+| CPU | Area | fmax | DMIPS/MHz | P@fmax | P@100MHz |
+|----- |----------|-------|-----------|---------------- | --- |
+| surov | 0.015 | 750 | 0.591 | 27 | 3.9 |
+| surov-e | 0.010 | 750 | 0.559 | 17 | 2.4 | 
 
-<sup>1</sup> Freq is just 1/arrival time of wns path, with an unattainable timing target.
-
-<sup>2</sup> VexRiscv min config from m-labs/VexRiscv-verilog.
-
-<sup>3</sup> Comparable picorv32 config (ENABLE_COUNTERS64=0, CATCH_MISALIGN=0, CATCH_ILLINSN=0). The published 0.516 is for a core with barrel shifter, MUL and DIV, so the comparable core will have a lower score.
 
 ## How to Run
 
@@ -59,7 +49,7 @@ make # verilator simulator
 make synth # run yosys + sta
 ```
 
-The Systemverilog source is in hw/suro-v.1. The makefile can be used from hw/ directly.
+The Systemverilog source is in hw/suro-v.2. The makefile can be used from hw/ directly.
 
 The verilator testbench is in hw/tests/test_surov.cpp. To accommodate for rv32e, it uses a5 for syscall number.
 
