@@ -92,7 +92,6 @@ module control (
                 endcase
                 unique case (opcode)
                     OP_JAL: ctrl.maddr_src = SRC_ALU;
-                    OP_JALR: ctrl.maddr_src = src_t'({ $bits(src_t){1'bx} });
                     default: ctrl.maddr_src = SRC_PC_PLUS4;
                 endcase
                 ctrl.memop = 0;

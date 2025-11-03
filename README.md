@@ -1,12 +1,12 @@
 # suro-v
 
-A tiny RISC-V processor that implements RV32I/E + Zicntr* + Zba. Uses a multi-cycle architecture where each instruction takes 2-4 cycles. Large shifts take additional cycles through a multi-stage shifter that can shift up to 3 bits per cycle. No interrupts or privilaged instructions.
+A tiny RISC-V processor that implements RV32I/E + Zicntr* + Zba. Uses a multi-cycle architecture where each instruction takes 1-3 cycles. Large shifts take additional cycles through a multi-stage shifter that can shift up to 3 bits per cycle. No interrupts or privilaged instructions.
 
 Passes RISCV ISA tests rv32ui-p* and rv32uzba-p*.
 
-Achives 0.498 DMIPS/MHz for I variant and 0.479 for E variant.
+Achives 0.568 DMIPS/MHz for I variant and 0.479 for E variant.
 
-*Zicntr is basic cycle counter only - time returns cycle count, no higher-bit counters.
+*Zicntr time returns cycle count, no higher-bit counters.
 
 ## Architecture
 
@@ -21,88 +21,21 @@ Achives 0.498 DMIPS/MHz for I variant and 0.479 for E variant.
 |----------------|--------|
 | ALU (reg-reg)  | 3      |
 | ALU (reg-imm)  | 2      |
-| Load           | 4      |
+| Load           | 3      |
 | Store          | 2      |
-| Branch not taken  | 3   |
-| branch taken   | 4      |
+| branch         | 3      |
 | JAL            | 2      |
 | JALR           | 3      |
 
 
-```mermaid
-graph TD
-subgraph D [Op-Op]
-    subgraph r1 [ ]
-        pc1[pc]
-    end
-    subgraph r2 [ ]
-        s1
-        pc2[pc]
-        m1[MEM]
-    end
-    rs1((rs1)) --> RF --> s1
-    pc1 --> +4 --> pc2
-    +4 --> m1
-
-    subgraph r3 [ ]
-        s2
-    end
-    rs2((rs2)) --> RF2[RF] --> s2
-    s1 ~~~ RF2
-
-    subgraph r4 [ ]
-        RF3[RF]
-        pc3[pc]
-        m2[MEM]
-        Inst
-    end
-    s2 --> +&
-    s1 --> +&
-    +& --> RF3[RF]
-    pc2 --> plus2[+4] --> C{ } --> m2
-    C --> pc3
-    m1 --> Inst
-    r3 ~~~ plus2
-end
-style D fill:#969
-```
-
-```mermaid
-graph TD
-subgraph D [Op-Imm]
-    subgraph r1 [ ]
-        pc1[pc]
-    end
-    subgraph r2 [ ]
-        s1
-        pc2[pc]
-        m1[MEM]
-    end
-    subgraph r4 [ ]
-        RF3[RF]
-        pc3[pc]
-        m2[MEM]
-        Inst
-    end
-    rs1((rs1)) --> RF --> s1
-    pc1 --> +4 --> pc2
-    +4 --> m1
-    imm((imm)) --> +&
-    s1 --> +&
-    +& --> RF3[RF]
-    pc2 --> plus2[+4] --> m2
-    plus2 --> C{ } --> pc3
-    m1 --> Inst
-end
-style D fill:#969
-```
+![suro-v block diagram](surov2.svg)
 ## Performance
 
 Quick PPA using openroad-flow-script nangate45.
 
 | Config | DMIPS/MHz | Area (mm²/1000) | Freq (MHz)<sup>1</sup> | Power (mW) | DMIPS/MHz/mm2 | DMIPS/mm2 | DMIPS/W
 |--------|-----------|-----------------|------------|------------|-----------| --- | ---
-| suro-v i_zba | 0.498 | 14.96 | 618 | 41.6 | 33.3 | 20600 | 7400 |
+| suro-v i_zba | 0.568| 14.96 | 618 | 41.6 | 33.3 | 20600 | 7400 |
 | suro-v e_zba | 0.479 | 10.22 | 596 | 29.2 | 46.9 | 27900 | 9777 |
 | suro-v e_zba latch_rf | 0.479 | 8.73 | 563 | 31.6 | 54.9 | 30900 | 8534 |
 | VexRiscv<sup>2</sup>   | 0.82 | 24.34 | 794 | 71.2 | 33.7 | 26750 | 9140
