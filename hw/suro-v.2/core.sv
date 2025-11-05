@@ -109,9 +109,9 @@ module surov_wrapper #(
     
     // SRAM registered inputs
     logic [ADDR_WIDTH-1:0] sram_addr_reg;
-    logic sram_rden_reg;
     logic sram_wren_reg;
-    logic [2:0] sram_size_reg;
+    logic sram_sign_reg;
+    logic [DATA_WIDTH-1:0] sram_mask_reg;
     logic [DATA_WIDTH-1:0] sram_wdata_reg;
     
     // SRAM storage
@@ -119,6 +119,9 @@ module surov_wrapper #(
     
     // SRAM output
     logic [DATA_WIDTH-1:0] sram_rdata;
+
+    // SRAM mask
+    logic[DATA_WIDTH-1:0] sram_mask;
     
     // Instantiate surov module
     surov surov_inst (
@@ -132,86 +135,69 @@ module surov_wrapper #(
         .memwrite_data(memwrite_data),
         .trap(trap)
     );
+
     
+    
+    // Generate SRAM mask based on mem_size and mem_addr
+    always_comb begin
+        unique case (mem_size[1:0])
+            2'b00: begin  // MEM_B, MEM_BU - byte access
+                case (mem_addr[1:0])
+                    2'b00: sram_mask = 32'h000000FF;  // byte 0 (LSB)
+                    2'b01: sram_mask = 32'h0000FF00;  // byte 1
+                    2'b10: sram_mask = 32'h00FF0000;  // byte 2
+                    2'b11: sram_mask = 32'hFF000000;  // byte 3 (MSB)
+                endcase
+            end
+            2'b01: begin  // MEM_H, MEM_HU - halfword access
+                case (mem_addr[1])
+                    1'b0: sram_mask = 32'h0000FFFF;   // lower halfword
+                    1'b1: sram_mask = 32'hFFFF0000;   // upper halfword
+                endcase
+            end
+            2'b10: begin  // MEM_W - word access
+                sram_mask = 32'hFFFFFFFF;             // full word
+            end
+            default: sram_mask = 32'hx;        // invalid size
+        endcase
+    end
+
     // Register SRAM inputs
     always_ff @(posedge clk) begin
-        if (rst) begin
-            sram_addr_reg <= '0;
-            sram_rden_reg <= 1'b0;
-            sram_wren_reg <= 1'b0;
-            sram_size_reg <= 3'b0;
-            sram_wdata_reg <= '0;
-        end else begin
-            sram_addr_reg <= mem_addr[ADDR_WIDTH-1:0];
-            sram_rden_reg <= mem_rden;
-            sram_wren_reg <= mem_wren;
-            sram_size_reg <= mem_size;
+        sram_wren_reg  <= mem_wren;
+        if (mem_rden | mem_wren) begin
+            sram_addr_reg  <= mem_addr[ADDR_WIDTH-1:0];
+            sram_sign_reg  <= mem_size[2];
+            sram_mask_reg  <= sram_mask;
             sram_wdata_reg <= memwrite_data;
         end
     end
-    
+
     // SRAM read/write logic (operates on registered inputs)
     always_ff @(posedge clk) begin
         if (sram_wren_reg) begin
-            case (sram_size_reg)
-                3'b000, 3'b100: begin  // MEM_B, MEM_BU - byte
-                    case (sram_addr_reg[1:0])
-                        2'b00: sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]][7:0]   <= sram_wdata_reg[7:0];
-                        2'b01: sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]][15:8]  <= sram_wdata_reg[7:0];
-                        2'b10: sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]][23:16] <= sram_wdata_reg[7:0];
-                        2'b11: sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]][31:24] <= sram_wdata_reg[7:0];
-                    endcase
-                end
-                3'b001, 3'b101: begin  // MEM_H, MEM_HU - halfword
-                    case (sram_addr_reg[1])
-                        1'b0: sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]][15:0]  <= sram_wdata_reg[15:0];
-                        1'b1: sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]][31:16] <= sram_wdata_reg[15:0];
-                    endcase
-                end
-                3'b010: begin  // MEM_W - word
-                    sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]] <= sram_wdata_reg;
-                end
-            endcase
+            // Write using a for loop and bitwise mask
+            for (int i = 0; i < DATA_WIDTH; i++) begin
+                if (sram_mask_reg[i])
+                    sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]][i] <= sram_wdata_reg[i + sram_addr_reg[1:0]*8];
+            end
         end
     end
     
-    assign sram_rdata = sram_rden_reg ? sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]]: 'x;
+    assign sram_rdata = sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]];
     
     // Sign/zero extension for reads
     always_comb begin
-        case (sram_size_reg)
-            3'b000: begin  // MEM_B - signed byte
-                case (sram_addr_reg[1:0])
-                    2'b00: memread_data = {{24{sram_rdata[7]}},  sram_rdata[7:0]};
-                    2'b01: memread_data = {{24{sram_rdata[15]}}, sram_rdata[15:8]};
-                    2'b10: memread_data = {{24{sram_rdata[23]}}, sram_rdata[23:16]};
-                    2'b11: memread_data = {{24{sram_rdata[31]}}, sram_rdata[31:24]};
-                endcase
-            end
-            3'b100: begin  // MEM_BU - unsigned byte
-                case (sram_addr_reg[1:0])
-                    2'b00: memread_data = {24'b0, sram_rdata[7:0]};
-                    2'b01: memread_data = {24'b0, sram_rdata[15:8]};
-                    2'b10: memread_data = {24'b0, sram_rdata[23:16]};
-                    2'b11: memread_data = {24'b0, sram_rdata[31:24]};
-                endcase
-            end
-            3'b001: begin  // MEM_H - signed halfword
-                case (sram_addr_reg[1])
-                    1'b0: memread_data = {{16{sram_rdata[15]}}, sram_rdata[15:0]};
-                    1'b1: memread_data = {{16{sram_rdata[31]}}, sram_rdata[31:16]};
-                endcase
-            end
-            3'b101: begin  // MEM_HU - unsigned halfword
-                case (sram_addr_reg[1])
-                    1'b0: memread_data = {16'b0, sram_rdata[15:0]};
-                    1'b1: memread_data = {16'b0, sram_rdata[31:16]};
-                endcase
-            end
-            3'b010: begin  // MEM_W - word
-                memread_data = sram_rdata;
-            end
-            default: memread_data = '0;
+        // Use sram_mask_reg to select which bytes/halfwords to extend
+        unique case (sram_mask_reg)
+            32'h000000FF: memread_data = {sram_sign_reg ? 24'b0 : {24{sram_rdata[7]}},  sram_rdata[7:0]};
+            32'h0000FF00: memread_data = {sram_sign_reg ? 24'b0 : {24{sram_rdata[15]}}, sram_rdata[15:8]};
+            32'h00FF0000: memread_data = {sram_sign_reg ? 24'b0 : {24{sram_rdata[23]}}, sram_rdata[23:16]};
+            32'hFF000000: memread_data = {sram_sign_reg ? 24'b0 : {24{sram_rdata[31]}}, sram_rdata[31:24]};
+            32'h0000FFFF: memread_data = {sram_sign_reg ? 16'b0 : {16{sram_rdata[15]}}, sram_rdata[15:0]};
+            32'hFFFF0000: memread_data = {sram_sign_reg ? 16'b0 : {16{sram_rdata[31]}}, sram_rdata[31:16]};
+            32'hFFFFFFFF: memread_data = sram_rdata;
+            default:      memread_data = 'X;
         endcase
     end
 
