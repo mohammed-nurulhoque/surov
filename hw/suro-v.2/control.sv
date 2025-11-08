@@ -1,9 +1,9 @@
 /* verilator lint_off CASEINCOMPLETE */
-function logic[1:0] fowarded_cycle(opcode_t opcode);
+function logic[1:0] fowarded_stage(opcode_t opcode);
     unique case (opcode)
-        OP_IMM: fowarded_cycle = 2;
-        OP_OP, OP_LOAD, OP_STORE, OP_JALR, OP_BRANCH: fowarded_cycle = 1;
-        default: fowarded_cycle = 'x;
+        OP_IMM: fowarded_stage = 2;
+        OP_OP, OP_LOAD, OP_STORE, OP_JALR, OP_BRANCH: fowarded_stage = 1;
+        default: fowarded_stage = 'x;
     endcase
 endfunction
 
@@ -13,45 +13,47 @@ module control (
 
     input opcode_t opcode,
     input opcode_t next_opcode,
-    input logic done,
+    input logic done,           // ALU operation of current stage is complete
     input logic branch_taken,
-    input logic forward_taken,
+    input logic forward,
 
     output ctrl_t ctrl,
     output logic rf_wren,
     output logic mem_rden,
     output logic mem_wren,
 
-    output logic[1:0] cycle,
+    output logic[1:0] stage,
     output logic trap
 );
-    logic start;
+    logic start;                // First cycle of current stage
 
-    logic[1:0] fcycle;
-    assign fcycle = fowarded_cycle(next_opcode);
+    logic[1:0] fstage;
+    assign fstage = fowarded_stage(next_opcode);
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            cycle <= 0;
+            stage <= 0;
             start <= 1;
         end else begin
             if (done) begin
                 start <= 1;
-                unique case (cycle)
+                // All 2-stage operations go stage-0 to stage-2, except store.
+                // This was done to keep stages for uniform across opcodes.
+                unique case (stage)
                     0: begin
                         unique case (opcode)
-                            OP_OP, OP_LOAD, OP_STORE, OP_BRANCH, OP_JALR: cycle <= 1;
-                            default: cycle <= 2;
+                            OP_OP, OP_LOAD, OP_STORE, OP_BRANCH, OP_JALR: stage <= 1;
+                            default: stage <= 2;
                         endcase
                     end
                     1: begin
                         unique case (opcode)
-                            OP_STORE: cycle <= forward_taken ? fcycle : 0;
-                            default: cycle <= 2;
+                            OP_STORE: stage <= forward ? fstage : 0;
+                            default: stage <= 2;
                         endcase
                     end
                     2: begin
-                        cycle <= forward_taken ? fcycle : 0;
+                        stage <= forward ? fstage : 0;
                     end
                 endcase
             end else begin
@@ -59,11 +61,11 @@ module control (
             end
         end
     end
-    assign trap = opcode == OP_SYS && cycle == 0;
+    assign trap = opcode == OP_SYS && stage == 0;
 
     always_comb begin
         ctrl.start = start;
-        unique case (cycle)
+        unique case (stage)
             0: begin
                 ctrl.set_r1 = 1;
                 unique case (opcode)
@@ -77,7 +79,7 @@ module control (
                 ctrl.pc_src = (opcode == OP_JAL) ? SRC_ALU : SRC_PC_PLUS4;
                 ctrl.set_pc2 = 0;
                 ctrl.set_ir = 0;
-                ctrl.ir_src = 1;
+                ctrl.ir_src = 'x;
                 ctrl.set_ir2 = 'x;
                 unique case (opcode)
                     OP_JAL:   ctrl.rf_src = SRC_PC_PLUS4;
@@ -141,12 +143,12 @@ module control (
                 unique case (opcode)
                     OP_LOAD:   ctrl.r1_src = SRC_MEM;
                     OP_OP, OP_IMM, OP_LUI: ctrl.r1_src = SRC_ALU;
-                    default:   ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });  // forwarding will need to handle this
+                    default:   ctrl.r1_src = src_t'({ $bits(src_t){1'bx} });
                 endcase
                 ctrl.set_r2 = 1; // only for shift. datapath uses r2_src to decide.
                 ctrl.r2_src = 0; // shamt_out
-                ctrl.set_pc = forward_taken | (((opcode == OP_BRANCH) & branch_taken) | opcode == OP_JALR);
-                ctrl.pc_src = forward_taken ? SRC_PC_PLUS4 : SRC_PC2;
+                ctrl.set_pc = forward | (((opcode == OP_BRANCH) & branch_taken) | opcode == OP_JALR);
+                ctrl.pc_src = forward ? SRC_PC_PLUS4 : SRC_PC2;
                 ctrl.set_pc2 = 0;
                 ctrl.set_ir = done;
                 ctrl.ir_src = !(!start | (opcode == OP_LOAD) | (opcode == OP_BRANCH & !branch_taken));
@@ -162,7 +164,7 @@ module control (
                 unique case (opcode)
                     OP_IMM:    begin
                         ctrl.alu_a_r1 = 1;
-                        ctrl.alu_b_r2 = !start; // 1st cycle use immediate, subsequently use r2 (shifts)
+                        ctrl.alu_b_r2 = !start; // 1st stage use immediate, subsequently use r2 (shifts)
                         ctrl.alu_op = 1;
                     end
                     OP_OP, OP_BRANCH: begin
@@ -201,19 +203,19 @@ module control (
     always_comb begin
         unique case (opcode)
             OP_STORE, OP_BRANCH, OP_FENCE: rf_wren = 0;
-            OP_JAL, OP_AUIPC, OP_SYS: rf_wren = cycle == 0;
-            default: rf_wren = cycle == 2;
+            OP_JAL, OP_AUIPC, OP_SYS: rf_wren = stage == 0;
+            default: rf_wren = stage == 2;
         endcase
     end
 
     always_comb begin
-        unique case (cycle)
+        unique case (stage)
             0: mem_rden = 1;
             1: mem_rden = (opcode == OP_JALR) | (opcode == OP_LOAD) | (opcode == OP_BRANCH);
             2: mem_rden = 1;
             3: mem_rden = 'x;
         endcase
     end
-    assign mem_wren = (opcode == OP_STORE) && (cycle == 1);
+    assign mem_wren = (opcode == OP_STORE) && (stage == 1);
 
 endmodule

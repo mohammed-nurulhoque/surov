@@ -11,7 +11,7 @@
 
 #include "Vsurov.h"
 #include "Vsurov_surov.h"
-#include "Vsurov_datapath.h"
+#include "Vsurov_datapath__EB0.h"
 #include "Vsurov_cntrs.h"
 #include "Vsurov_rf.h"
 
@@ -220,7 +220,7 @@ int main(int argc, char *argv[]) {
         unsigned pc = dut.surov->dp->pc << 2;
         unsigned inst = dut.surov->dp->ir;
 
-        if (dut.surov->cycle == 0) {
+        if (dut.surov->stage == 0) {
             instr_count++;
         }
 

@@ -1,5 +1,4 @@
 typedef logic[29:0] pc_t;
-typedef logic[$clog2(`REG_COUNT)-1:0]  regnum_t;
 typedef logic[1:0] cntr_t;
 
 typedef enum logic[2:0] {

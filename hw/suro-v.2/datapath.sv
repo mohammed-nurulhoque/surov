@@ -8,6 +8,8 @@ function pc_t word2pc(input word_t addr);
 endfunction
 
 function word_t ext_imm(input word_t ir);
+    // Note on b-imm. A branch instruction does pc = pc + 4 in stage 0. Then in stage-1
+    // does pc2 = pc + imm. Since pc is already incremented, we need to subtract 4 from imm.
     unique case (ext_opcode(ir))
         OP_LUI:    return ext_u_imm(ir);
         OP_JALR:   return ext_i_imm(ir);
@@ -21,7 +23,14 @@ function word_t ext_imm(input word_t ir);
     endcase
 endfunction
 
-module datapath (
+module datapath
+#(
+    parameter REG_COUNT = 32,
+    parameter ENABLE_ZBA = 1,
+    parameter ENABLE_FORWARD = 1,
+    localparam WREGNUM = $clog2(REG_COUNT)
+)
+(
     input logic clk,
     input logic rst,
 
@@ -33,7 +42,7 @@ module datapath (
     output opcode_t opcode,
     output opcode_t next_opcode,
 
-    output regnum_t  regnum,
+    logic[WREGNUM-1 : 0]  regnum,
     input  word_t rfread_data,
     output word_t rfwrite_data,
 
@@ -55,9 +64,7 @@ module datapath (
     word_t alu_src_b;
     logic[2:0] alu_f3;
     logic alu_arith_bit;
-`ifdef SHADD
     logic alu_shadd;
-`endif
     logic alu_branch;
     word_t alu_out;
     sham_t alu_shamt_out;
@@ -68,9 +75,7 @@ module datapath (
         .src_b(alu_src_b),
         .f3(alu_f3),
         .arith_bit(alu_arith_bit),
-`ifdef SHADD
         .shadd(alu_shadd),
-`endif
         .branch(alu_branch),
         .out(alu_out),
         .shamt_out(alu_shamt_out),
@@ -98,7 +103,7 @@ module datapath (
         op2map[OP_AUIPC]= 0;
         next_opcode = ext_opcode(ctrl.ir_src ? memread_data: r1);
         match_reg = (ext_rd(ir) == ext_rs1(ctrl.ir_src ? memread_data: r1)) && ext_rd(ir) != 0;
-        forward = ctrl.set_ir && match_reg && op1map[opcode] && op2map[next_opcode];
+        forward = ENABLE_FORWARD & ctrl.set_ir && match_reg && op1map[opcode] && op2map[next_opcode];
     end
 
     always_ff @(posedge clk) begin
@@ -131,10 +136,7 @@ module datapath (
         if (ctrl.set_r2) begin
             if (ctrl.r2_src)
                 r2 <= rfread_data;
-            else
-`ifdef SHADD
-            if (!alu_shadd) // FIXME a bit hacky
-`endif
+            else if (!alu_shadd) // FIXME a bit hacky
                 r2[4:0] <= alu_shamt_out;
         end
         if (ctrl.set_pc2)
@@ -151,16 +153,12 @@ module datapath (
         alu_f3 = FUNC_ADDSUB; // default ALU function
         alu_arith_bit = 0; // default arithmetic bit
         alu_branch = 0; // default branch
-`ifdef SHADD
         alu_shadd = 0; // default shift/add
-`endif
         if (ctrl.alu_op) begin
             alu_f3 = ext_f3(ir);
             alu_arith_bit = ext_arith_bit(ir) && (opcode == OP_OP || ext_f3(ir) == FUNC_SR);
             alu_branch = opcode == OP_BRANCH;
-`ifdef SHADD
-            alu_shadd = (opcode == OP_OP && isShadd(ir));
-`endif
+            alu_shadd = ENABLE_ZBA & (opcode == OP_OP && isShadd(ir));
         end
     end
 
@@ -169,10 +167,10 @@ module datapath (
     // Register file
     always_comb begin
         unique case (ctrl.rf_regnum_src)
-            X0:  regnum = 5'h0;
-            RS1: regnum = ext_rs1(ir);
-            RS2: regnum = ext_rs2(ir);
-            RD:  regnum = ext_rd(ir);
+            X0:  regnum = {WREGNUM{1'b0}};
+            RS1: regnum = {ext_rs1(ir)}[WREGNUM-1 : 0];
+            RS2: regnum = {ext_rs2(ir)}[WREGNUM-1 : 0];
+            RD:  regnum = {ext_rd(ir)}[WREGNUM-1 : 0];
         endcase
         case (ctrl.rf_src)
             SRC_PC_PLUS4: rfwrite_data = pc2word(pc_plus4);

@@ -1,4 +1,11 @@
-module surov (
+module surov
+#(
+    parameter REG_COUNT = 32,
+    parameter ENABLE_ZBA = 1,
+    parameter ENABLE_FORWARD = 0,
+    localparam WREGNUM= $clog2(REG_COUNT)
+)
+(
     input logic clk,
     input logic rst,
 
@@ -19,9 +26,9 @@ module surov (
     opcode_t opcode;
     opcode_t next_opcode;
 
-    logic[1:0] cycle /*verilator public*/;
+    logic[1:0] stage /*verilator public*/;
 
-    regnum_t  regnum;
+    logic[WREGNUM-1 : 0]  regnum;
     word_t rfread_data;
     word_t rfwrite_data;
     logic rf_wren;
@@ -35,7 +42,7 @@ module surov (
     end
 
 
-    rf #(.WORD_SIZE(`XLEN), .REG_COUNT(`REG_COUNT)) r  (
+    rf #(.XLEN(32), .REG_COUNT(REG_COUNT)) r  (
         .clk(clk),
         .we(rf_wren),
         .addr(regnum),
@@ -43,7 +50,7 @@ module surov (
         .rdata(rfread_data)
     );
 
-    datapath dp (
+    datapath #(.REG_COUNT(REG_COUNT), .ENABLE_ZBA(ENABLE_ZBA), .ENABLE_FORWARD(ENABLE_FORWARD)) dp (
         .clk(clk),
         .rst(rst),
         .ctrl(ctrl),
@@ -70,20 +77,19 @@ module surov (
         .next_opcode(next_opcode),
         .done(done),
         .branch_taken(branch_taken),
-        .forward_taken(forward),
+        .forward(forward),
         .ctrl(ctrl),
         .rf_wren(rf_wren),
         .mem_rden(mem_rden),
         .mem_wren(mem_wren),
-        .cycle(cycle),
+        .stage(stage),
         .trap(trap)
     );
 
     cntrs cn (
         .clk(clk),
         .rst(rst),
-        .cycle(cycle),
-        .start(ctrl.start),
+        .next_instr(ctrl.set_ir),
         .addr(cntr_addr),
         .data(cntr_data)
     );
@@ -91,8 +97,8 @@ endmodule
 
 module surov_wrapper #(
     parameter SRAM_SIZE = 4096,  // 4KB SRAM
-    parameter ADDR_WIDTH = $clog2(SRAM_SIZE),
-    parameter DATA_WIDTH = 32    // Assuming word_t is 32-bit
+    localparam ADDR_WIDTH = $clog2(SRAM_SIZE),
+    parameter XLEN = 32    // Assuming word_t is 32-bit
 ) (
     input  logic clk,
     input  logic rst,
@@ -100,31 +106,31 @@ module surov_wrapper #(
 );
 
     // Signals between surov and SRAM
-    logic [DATA_WIDTH-1:0] mem_addr;
+    logic [XLEN-1:0] mem_addr;
     logic mem_rden;
     logic mem_wren;
     logic [2:0] mem_size;  // mem_addr_t enum
-    logic [DATA_WIDTH-1:0] memread_data;
-    logic [DATA_WIDTH-1:0] memwrite_data;
+    logic [XLEN-1:0] memread_data;
+    logic [XLEN-1:0] memwrite_data;
     
     // SRAM registered inputs
     logic [ADDR_WIDTH-1:0] sram_addr_reg;
     logic sram_wren_reg;
     logic sram_sign_reg;
-    logic [DATA_WIDTH-1:0] sram_mask_reg;
-    logic [DATA_WIDTH-1:0] sram_wdata_reg;
+    logic [XLEN-1:0] sram_mask_reg;
+    logic [XLEN-1:0] sram_wdata_reg;
     
     // SRAM storage
-    logic [DATA_WIDTH-1:0] sram_mem [0:SRAM_SIZE/4-1];  // Byte-addressable as words
+    logic [XLEN-1:0] sram_mem [0:SRAM_SIZE/4-1];  // Byte-addressable as words
     
     // SRAM output
-    logic [DATA_WIDTH-1:0] sram_rdata;
+    logic [XLEN-1:0] sram_rdata;
 
     // SRAM mask
-    logic[DATA_WIDTH-1:0] sram_mask;
+    logic[XLEN-1:0] sram_mask;
     
     // Instantiate surov module
-    surov surov_inst (
+    surov #(.XLEN(XLEN)) surov_inst (
         .clk(clk),
         .rst(rst),
         .mem_addr(mem_addr),
@@ -177,7 +183,7 @@ module surov_wrapper #(
     always_ff @(posedge clk) begin
         if (sram_wren_reg) begin
             // Write using a for loop and bitwise mask
-            for (int i = 0; i < DATA_WIDTH; i++) begin
+            for (int i = 0; i < XLEN; i++) begin
                 if (sram_mask_reg[i])
                     sram_mem[sram_addr_reg[ADDR_WIDTH-1:2]][i] <= sram_wdata_reg[i + sram_addr_reg[1:0]*8];
             end

@@ -1,18 +1,17 @@
 module rf #(
-    parameter WORD_SIZE = 32,
+    parameter XLEN = 32,
     parameter REG_COUNT = 32
 )(
     input  wire                      clk,
     input  wire                      we,       // Write enable
     input  wire [$clog2(REG_COUNT)-1:0] addr,   // Address for both read and write
-    input  wire [WORD_SIZE-1:0]     wdata,    // Data to write
-    output reg [WORD_SIZE-1:0]     rdata     // Data to read
+    input  wire [XLEN-1:0]     wdata,    // Data to write
+    output reg [XLEN-1:0]     rdata     // Data to read
 );
 
-    reg [WORD_SIZE - 1 : 0] mem [REG_COUNT - 1 : 0];
+    reg [XLEN - 1 : 0] regfile [REG_COUNT - 1 : 0] /*verilator public*/;
     always @(posedge clk)
-            if (we)
-                    mem[addr] <= wdata;
-    assign rdata = mem[addr];
-
+        if (we)
+            regfile[addr] <= wdata;
+    assign rdata = (addr == 0) ? '0 : regfile[addr];
 endmodule
