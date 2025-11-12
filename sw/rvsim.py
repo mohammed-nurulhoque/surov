@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, subprocess
+import sys, subprocess, re
 from collections import Counter
 from enum import Enum
 from ctypes import c_int32, c_uint32, c_int8, c_int16
@@ -32,6 +32,27 @@ Syscall = Enum('Syscall', [
     ('WRITE', 64),
     ('EXIT', 93)
 ], start=0)
+
+def load_symbols(asm_file):
+    """Parse function names and addresses from objdump .s file.
+    
+    Returns a dict mapping address (int) to function name (str).
+    """
+    symbols = {}
+    try:
+        with open(asm_file) as f:
+            for line in f:
+                # Match lines like: 00010094 <main>:
+                m = re.match(r'^([0-9a-f]+)\s+<(\w+)>:', line)
+                if m:
+                    symbols[int(m.group(1), 16)] = m.group(2)
+        sys.stderr.write(f'Loaded {len(symbols)} symbols from {asm_file}\n')
+    except FileNotFoundError:
+        sys.stderr.write(f'Warning: Symbol file {asm_file} not found\n')
+    except Exception as e:
+        sys.stderr.write(f'Warning: Error loading symbols: {e}\n')
+    return symbols
+
 
 def sign_extend(value, bits):
     sign_bit = 1 << (bits - 1)
@@ -142,12 +163,14 @@ inst_cycles = {
 
 class FunctionProfiler:
     """Tracks function call/return and accumulates exclusive cycles/instructions per function."""
-    def __init__(self):
+    def __init__(self, symbol_map=None):
         # Stack of (entry_address, entry_cycle, entry_instret, last_sample_cycle, last_sample_instret) tuples
         # where last_sample_* tracks when we last sampled this function's execution
         self.call_stack = []
         # Map from entry_address to {'cycles': int, 'insts': int, 'calls': int}
         self.func_stats = {}
+        # Map from address to symbol name (optional)
+        self.symbol_map = symbol_map or {}
 
     def push_call(self, entry_addr: int, current_cycle: int, current_instret: int) -> None:
         """Push a new function call onto the stack.
@@ -200,8 +223,14 @@ class FunctionProfiler:
             return
         
         sys.stderr.write('\n=== Function Profiling ===\n')
-        sys.stderr.write(f'{"Address":<12} {"Cycles":<12} {"Insts":<12} {"Calls":<8}\n')
-        sys.stderr.write('-' * 50 + '\n')
+        # Determine if we have symbols for better column sizing
+        has_symbols = any(addr in self.symbol_map for addr in self.func_stats.keys())
+        if has_symbols:
+            sys.stderr.write(f'{"Name":<28} {"Address":>10} {"Cycles":>12} {"Insts":>12} {"Calls":>8}\n')
+            sys.stderr.write('-' * 72 + '\n')
+        else:
+            sys.stderr.write(f'{"Address":>10} {"Cycles":>12} {"Insts":>12} {"Calls":>8}\n')
+            sys.stderr.write('-' * 44 + '\n')
         
         # Sort by cycles (descending)
         for addr in sorted(self.func_stats.keys(), 
@@ -210,8 +239,14 @@ class FunctionProfiler:
             stats = self.func_stats[addr]
             avg_cycles = stats['cycles'] // stats['calls'] if stats['calls'] > 0 else 0
             avg_insts = stats['insts'] // stats['calls'] if stats['calls'] > 0 else 0
-            sys.stderr.write(f'{addr:12x} {stats["cycles"]:<12d} {stats["insts"]:<12d} {stats["calls"]:<8d}\n')
-            sys.stderr.write(f'  avg/call:    {avg_cycles:<12d} {avg_insts:<12d}\n')
+            
+            symbol_name = self.symbol_map.get(addr, '')
+            if has_symbols:
+                sys.stderr.write(f'{symbol_name:<28} {addr:>10x} {stats["cycles"]:>12d} {stats["insts"]:>12d} {stats["calls"]:>8d}\n')
+                sys.stderr.write(f'{"(avg/call)":>28} {"":<10} {avg_cycles:>12d} {avg_insts:>12d}\n')
+            else:
+                sys.stderr.write(f'{addr:>10x} {stats["cycles"]:>12d} {stats["insts"]:>12d} {stats["calls"]:>8d}\n')
+                sys.stderr.write(f'{"(avg/call)":>10} {avg_cycles:>12d} {avg_insts:>12d}\n')
 
 
 class Cntrs:
@@ -267,12 +302,12 @@ class Cntrs:
             sys.stderr.write('\nNo instructions retired.\n')
 
 class CPU:
-    def __init__(self, img: bytes, base: int, pc_init: int) -> None:
+    def __init__(self, img: bytes, base: int, pc_init: int, symbol_map=None) -> None:
         self.pc = pc_init
         self.rf = {r: 0 for r in REG}
         self.mem = Mem(img, base)
         self.cntrs = Cntrs()
-        self.profiler = FunctionProfiler()
+        self.profiler = FunctionProfiler(symbol_map)
         # previously-written destination register (REG enum) or None
         self.prev_rd = None
 
@@ -486,7 +521,15 @@ class CPU:
         return self.pc
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        sys.stderr.write('Usage: rvsim.py <binary> [assembly_file]\n')
+        sys.exit(1)
+    
     filename = sys.argv[1]
+    asm_file = sys.argv[2] if len(sys.argv) > 2 else None
+    
+    # Load symbols if assembly file is provided
+    symbols = load_symbols(asm_file) if asm_file else {}
 
     cmd = f'readelf -l {filename} | grep \'Entry\\|LOAD\''
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip().split('\n')
@@ -508,7 +551,7 @@ if __name__ == "__main__":
     sys.stderr.write(f'base: {base:x} entry: {entry:x} image-size:{len(memimg)}\n')
     memimg += bytes(8192) # stack
 
-    cpu = CPU(memimg, base, entry)
+    cpu = CPU(memimg, base, entry, symbols)
     cpu.rf[REG.sp] = (base + len(memimg) - 4) // 16 * 16
 
     try:
