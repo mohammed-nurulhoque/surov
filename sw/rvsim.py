@@ -140,6 +140,80 @@ inst_cycles = {
 }
 
 
+class FunctionProfiler:
+    """Tracks function call/return and accumulates exclusive cycles/instructions per function."""
+    def __init__(self):
+        # Stack of (entry_address, entry_cycle, entry_instret, last_sample_cycle, last_sample_instret) tuples
+        # where last_sample_* tracks when we last sampled this function's execution
+        self.call_stack = []
+        # Map from entry_address to {'cycles': int, 'insts': int, 'calls': int}
+        self.func_stats = {}
+
+    def push_call(self, entry_addr: int, current_cycle: int, current_instret: int) -> None:
+        """Push a new function call onto the stack.
+        
+        When entering a new function, record current exclusive time for the 
+        current top-of-stack function (if any).
+        """
+        # Before pushing new call, finalize the exclusive time of the current function
+        if self.call_stack:
+            top_addr, top_entry_cycle, top_entry_instret, top_last_cycle, top_last_instret = self.call_stack[-1]
+            exclusive_cycles = current_cycle - top_last_cycle
+            exclusive_insts = current_instret - top_last_instret
+            self.func_stats[top_addr]['cycles'] += exclusive_cycles
+            self.func_stats[top_addr]['insts'] += exclusive_insts
+            # Update the top of stack to reflect that we've just sampled at current_cycle
+            self.call_stack[-1] = (top_addr, top_entry_cycle, top_entry_instret, current_cycle, current_instret)
+        
+        # Now push the new function
+        self.call_stack.append((entry_addr, current_cycle, current_instret, current_cycle, current_instret))
+        if entry_addr not in self.func_stats:
+            self.func_stats[entry_addr] = {'cycles': 0, 'insts': 0, 'calls': 0}
+        self.func_stats[entry_addr]['calls'] += 1
+
+    def pop_return(self, current_cycle: int, current_instret: int) -> None:
+        """Pop from stack when returning from a function.
+        
+        Record the exclusive time spent in the function being returned from,
+        then update the calling function's last sample point.
+        """
+        if not self.call_stack:
+            return
+        
+        entry_addr, entry_cycle, entry_instret, last_cycle, last_instret = self.call_stack.pop()
+        # Record exclusive cycles/insts for this function since last sample
+        exclusive_cycles = current_cycle - last_cycle
+        exclusive_insts = current_instret - last_instret
+        self.func_stats[entry_addr]['cycles'] += exclusive_cycles
+        self.func_stats[entry_addr]['insts'] += exclusive_insts
+        
+        # If there's a caller, update its last_sample to current point
+        # (the caller resumes execution here)
+        if self.call_stack:
+            caller_addr, caller_entry_cycle, caller_entry_instret, _, _ = self.call_stack[-1]
+            self.call_stack[-1] = (caller_addr, caller_entry_cycle, caller_entry_instret, current_cycle, current_instret)
+
+    def print_stats(self) -> None:
+        """Print function profiling statistics."""
+        if not self.func_stats:
+            sys.stderr.write('\nNo function profiling data.\n')
+            return
+        
+        sys.stderr.write('\n=== Function Profiling ===\n')
+        sys.stderr.write(f'{"Address":<12} {"Cycles":<12} {"Insts":<12} {"Calls":<8}\n')
+        sys.stderr.write('-' * 50 + '\n')
+        
+        # Sort by cycles (descending)
+        for addr in sorted(self.func_stats.keys(), 
+                          key=lambda a: self.func_stats[a]['cycles'], 
+                          reverse=True):
+            stats = self.func_stats[addr]
+            avg_cycles = stats['cycles'] // stats['calls'] if stats['calls'] > 0 else 0
+            avg_insts = stats['insts'] // stats['calls'] if stats['calls'] > 0 else 0
+            sys.stderr.write(f'{addr:12x} {stats["cycles"]:<12d} {stats["insts"]:<12d} {stats["calls"]:<8d}\n')
+            sys.stderr.write(f'  avg/call:    {avg_cycles:<12d} {avg_insts:<12d}\n')
+
+
 class Cntrs:
     def __init__(self):
         self.cycle = 0
@@ -198,6 +272,7 @@ class CPU:
         self.rf = {r: 0 for r in REG}
         self.mem = Mem(img, base)
         self.cntrs = Cntrs()
+        self.profiler = FunctionProfiler()
         # previously-written destination register (REG enum) or None
         self.prev_rd = None
 
@@ -310,11 +385,19 @@ class CPU:
                 imm = j_imm(instr)
                 next_pc = ui(self.pc + imm)
                 rdval = self.pc + 4
+                # Profile: pushing a function call (jal with rd != x0 is a call)
+                if rd(instr) == 1:  # not discarding return address
+                    self.profiler.push_call(next_pc, self.cntrs.cycle, self.cntrs.retired)
             case OPC.jalr:
                 imm = i_imm(instr)
                 rs1val = self.rf[REG(rs1(instr))]
                 next_pc = ui(rs1val + imm)
                 rdval = self.pc + 4
+                # Profile: detect return (jalr x0, ra, 0) or call (jalr rd, rs1)
+                if rd(instr) == 0 and rs1(instr) == 1 and imm == 0:  # return instruction
+                    self.profiler.pop_return(self.cntrs.cycle, self.cntrs.retired)
+                elif rd(instr) != 0:  # call (saving return address)
+                    self.profiler.push_call(next_pc, self.cntrs.cycle, self.cntrs.retired)
             # branches
             case OPC.br:
                 imm = b_imm(instr)
@@ -436,3 +519,4 @@ if __name__ == "__main__":
         if t.exit_code is not None:
             sys.stderr.write(f'called exit with code {t.exit_code}\n')
         cpu.cntrs.print_stats()
+        cpu.profiler.print_stats()
